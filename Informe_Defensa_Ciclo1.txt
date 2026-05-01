@@ -1,0 +1,97 @@
+--- CU01: Gestionar Inicio y Cierre de Sesión ---
+
+Captura de Datos (Frontend): En frontend/src/Login.js, aprox. lineas 70-93. Los inputs estan en aprox. 74 (email) y 85 (password), y el boton submit en aprox. 93 (type="submit").
+
+Envío de Petición (API): En frontend/src/Login.js, aprox. linea 27 se hace el fetch a http://localhost:8000/api/login/ (POST con email/password en JSON).
+
+Recepción (Backend - URLs): En backend/config/urls.py, aprox. linea 29 se intercepta path('api/login/', login_api, ...). Para cierre de sesion, aprox. linea 33 path('api/logout/', logout_api, ...).
+
+Procesamiento (Backend - Views): En backend/taller/views.py, funcion login_api(request) aprox. linea 193. La validacion de credenciales usa Usuario.objects.get(...) aprox. linea 212 y check_password(password_recibida, usuario.contrasena) aprox. linea 215 (comparacion contra hash almacenado). El token se genera con signing.dumps(token_data) aprox. linea 232. Para cierre de sesion, funcion logout_api(request) aprox. linea 285, registrando bitacora y retornando exito.
+
+Respuesta (Frontend): En frontend/src/Login.js, si respuesta es 200 OK (respuesta.ok && datos.exito, aprox. lineas 38-46), guarda token/usuario en localStorage (aprox. 39-41) y redirige segun rol con getHomeRouteByRole(...). Si es error (ej. 401 u otro no-OK), muestra mensaje con setError(...) aprox. linea 52. Si falla conexion, catch con setError(...) aprox. linea 55. Para cierre de sesion, frontend/src/auth.js (aprox. lineas 3-20) hace POST a /api/logout/ y luego limpia localStorage.
+
+--- CU02: Gestionar Usuarios ---
+
+Captura de Datos (Frontend): En frontend/src/Usuarios.js, aprox. lineas 317-347 esta el formulario principal de registro (nombre, email, password, telefono, id_rol) con submit en aprox. linea 317. La edicion de usuario se captura en el modal de aprox. lineas 391-417 (nombre, telefono, id_rol).
+
+Envío de Petición (API): En frontend/src/Usuarios.js se hacen llamadas a /api/usuarios/ y /api/roles/ para carga inicial (aprox. lineas 74 y 87). El alta de usuario usa POST a /api/usuarios/ en aprox. linea 190. La actualizacion de datos/rol y el cambio de estado (activar/desactivar) usan PATCH a /api/usuarios/<id>/ en aprox. lineas 232 y 262.
+
+Recepción (Backend - URLs): En backend/config/urls.py se intercepta path('api/usuarios/', usuarios_api, ...) aprox. linea 37 y path('api/usuarios/<int:usuario_id>/', usuario_detalle_api, ...) aprox. linea 38. El combo de roles del formulario se alimenta por path('api/roles/', roles_api, ...) aprox. linea 39.
+
+Procesamiento (Backend - Views): En backend/taller/views.py, la funcion usuarios_api(request) aprox. linea 363 resuelve GET (listar) y POST (crear), asignando rol por id_rol, encriptando contraseña con make_password(...) y registrando bitacora. La funcion usuario_detalle_api(request, usuario_id) aprox. linea 411 procesa PUT/PATCH para actualizar nombre, email, telefono, estado e id_rol, validando rol existente, email unico y registrando bitacora.
+
+Respuesta (Frontend): En frontend/src/Usuarios.js, si la creacion retorna exito (datos.exito), limpia el formulario y recarga tabla con cargarDatos() (aprox. lineas 202-205). En edicion y cambio de estado, al ser OK limpia error/cierra modal y recarga datos (aprox. lineas 246-248 y 275-276). Si hay error HTTP o de conexion, muestra setError(...) (aprox. lineas 207, 241, 270, 278).
+
+--- CU03: Gestionar Roles y Asignar Permisos ---
+
+Captura de Datos (Frontend): En frontend/src/RolesPermisos.js, la captura para crear rol esta en el formulario con onSubmit={crearRol} aprox. linea 216 (nombre y descripcion). La edicion de rol se captura en modal con onSubmit={guardarEdicionRol} (bloque inferior del componente). La asignacion de permisos por rol se captura en el formulario onSubmit={asignarPrivilegio} aprox. linea 321 con selects id_rol e id_privilegio.
+
+Envío de Petición (API): En frontend/src/RolesPermisos.js, la carga inicial de datos se realiza con GET a /api/roles/, /api/privilegios/ y /api/roles-privilegios/ (aprox. lineas 44-46). Para roles: crear usa POST /api/roles/ (aprox. linea 69), editar usa PUT /api/roles/<id>/ (en guardarEdicionRol) y eliminar usa DELETE /api/roles/<id>/ (aprox. linea 81). Para asignaciones: asignar usa POST /api/roles-privilegios/ (aprox. linea 167) y revocar usa DELETE /api/roles-privilegios/ (aprox. linea 180).
+
+Recepción (Backend - URLs): En backend/config/urls.py se intercepta path('api/roles/', roles_api, ...) aprox. linea 39, path('api/roles/<int:rol_id>/', rol_detalle_api, ...) aprox. linea 40 y path('api/roles-privilegios/', roles_privilegios_api, ...) aprox. linea 43.
+
+Procesamiento (Backend - Views): En backend/taller/views.py, roles_api(request) aprox. linea 462 procesa GET/POST (listar y crear rol con validacion de nombre unico y bitacora). rol_detalle_api(request, rol_id) aprox. linea 491 procesa PUT/DELETE (actualizar o eliminar rol con reglas de negocio: no renombrar/eliminar Administrador y no eliminar roles con usuarios asociados). roles_privilegios_api(request) aprox. linea 610 procesa GET/POST/DELETE para listar, asignar y revocar privilegios por rol, incluyendo validacion de existencia y de duplicados.
+
+Respuesta (Frontend): En frontend/src/RolesPermisos.js, cuando la operacion es exitosa, limpia estados locales y refresca tablas con cargarDatos(): setNuevoRol(...), setRolEdicion(null) y setAsignacion(...) (aprox. lineas 78, 111, 175). Cuando el backend devuelve error, muestra alert(data.error || ...) en crear/editar/eliminar/asignar/revocar; y en errores globales de carga usa setError(...) (aprox. lineas 57-58).
+
+--- CU04: Gestionar Permisos ---
+
+Captura de Datos (Frontend): En frontend/src/RolesPermisos.js, la captura para crear privilegio esta en el formulario con onSubmit={crearPrivilegio} aprox. linea 268 (nombre y descripcion). La edicion de privilegio se captura en el modal con onSubmit={guardarEdicionPrivilegio} (bloque final del componente).
+
+Envío de Petición (API): En frontend/src/RolesPermisos.js, la lista de privilegios se consulta en cargarDatos() con GET a /api/privilegios/ (aprox. linea 45). La creacion envia POST /api/privilegios/ (aprox. linea 118), la edicion envia PUT /api/privilegios/<id>/ (en guardarEdicionPrivilegio) y la eliminacion envia DELETE /api/privilegios/<id>/ (aprox. linea 130).
+
+Recepción (Backend - URLs): En backend/config/urls.py se intercepta path('api/privilegios/', privilegios_api, ...) aprox. linea 41 y path('api/privilegios/<int:privilegio_id>/', privilegio_detalle_api, ...) aprox. linea 42.
+
+Procesamiento (Backend - Views): En backend/taller/views.py, privilegios_api(request) aprox. linea 541 procesa GET/POST (listar y crear privilegios con validacion de nombre unico y bitacora). privilegio_detalle_api(request, privilegio_id) aprox. linea 570 procesa PUT/DELETE (actualizar o eliminar privilegio; al eliminar limpia primero relaciones en tabla rol_privilegio y luego registra bitacora).
+
+Respuesta (Frontend): En frontend/src/RolesPermisos.js, en operaciones exitosas de privilegios limpia estados y recarga datos: setNuevoPrivilegio(...), setPrivilegioEdicion(null) y cargarDatos() (aprox. lineas 127 y 160). Si la respuesta no es OK, muestra alert(data.error || ...) en crear/editar/eliminar privilegios; y para fallas de carga general se utiliza setError(...).
+
+--- CU05: Gestionar Clientes ---
+
+Captura de Datos (Frontend): En frontend/src/Clientes.js, aprox. linea 142 esta el formulario de alta de cliente (cedula, nombre, telefono, telefono_alternativo, direccion, email) con onSubmit={crearCliente}. La edicion se captura en modal con onSubmit={guardarEdicion} aprox. linea 243 (nombre y telefono). En la tabla tambien se captura la accion de estado con el boton dinamico Activar/Desactivar que llama cambiarEstadoCliente(...) (aprox. linea 99).
+
+Envío de Petición (API): En frontend/src/Clientes.js, la carga/listado usa GET /api/clientes/ con filtros q e incluir_inactivos desde cargarClientes(...) (aprox. linea 42). La creacion usa POST /api/clientes/ (crearCliente, aprox. linea 60). La edicion usa PUT /api/clientes/<id>/ (guardarEdicion, aprox. linea 83). Para estado, cambiarEstadoCliente(...) usa DELETE /api/clientes/<id>/ cuando se desactiva y PUT /api/clientes/<id>/ con body { estado: 'Activo' } cuando se reactiva (aprox. lineas 110 y 112).
+
+Recepción (Backend - URLs): En backend/config/urls.py se intercepta path('api/clientes/', clientes_api, ...) aprox. linea 44 y path('api/clientes/<int:cliente_id>/', cliente_detalle_api, ...) aprox. linea 45.
+
+Procesamiento (Backend - Views): En backend/taller/views.py, clientes_api(request) aprox. linea 689 procesa GET/POST (listar con filtros y crear cliente en estado Activo). cliente_detalle_api(request, cliente_id) aprox. linea 754 procesa PUT/DELETE. Importante: en DELETE NO se elimina fisicamente el registro; se hace desactivacion logica cambiando cliente.estado = 'Inactivo' (aprox. linea 780) y guardando el estado. Ademas, la vista aplica cascada logica sobre motocicletas del cliente, marcandolas Inactivo con Motocicleta.objects.filter(...).update(estado='Inactivo') (aprox. linea 783).
+
+Respuesta (Frontend): En frontend/src/Clientes.js, ante exito en crear/editar/desactivar/activar, recarga la tabla con cargarClientes(...) y actualiza la UI de estado (badge + opacidad + texto de boton) sin borrar filas historicas. Si el backend responde error, muestra setError(...) con el mensaje correspondiente. Esto refleja la desactivacion logica: los registros permanecen en BD y pueden visualizarse/gestionarse con “Mostrar inactivos”.
+
+--- CU06: Gestionar Motocicletas ---
+
+Captura de Datos (Frontend): En frontend/src/Motocicletas.js, el formulario de alta esta en aprox. linea 149 con onSubmit={crearMoto} (id_cliente, placa, marca, modelo, anio, etc.). La edicion se captura en modal con onSubmit={guardarEdicion} aprox. linea 264 (marca y modelo). La desactivacion se dispara desde el boton Desactivar que llama cambiarEstadoMoto(...) (aprox. linea 116), deshabilitado si la moto ya esta Inactivo (aprox. linea 239).
+
+Envío de Petición (API): En frontend/src/Motocicletas.js, cargarMotos(...) (aprox. linea 57) consulta GET /api/motocicletas/ con q e incluir_inactivos. crearMoto(...) (aprox. linea 75) envia POST /api/motocicletas/. guardarEdicion(...) (aprox. linea 100) envia PUT /api/motocicletas/<id>/. cambiarEstadoMoto(...) envia DELETE /api/motocicletas/<id>/ (aprox. linea 124) para desactivar logicamente.
+
+Recepción (Backend - URLs): En backend/config/urls.py se intercepta path('api/motocicletas/', motocicletas_api, ...) aprox. linea 46 y path('api/motocicletas/<int:motocicleta_id>/', motocicleta_detalle_api, ...) aprox. linea 47.
+
+Procesamiento (Backend - Views): En backend/taller/views.py, motocicletas_api(request) aprox. linea 790 procesa GET/POST (listar y crear en estado Activo). motocicleta_detalle_api(request, motocicleta_id) aprox. linea 830 procesa PUT/DELETE. En DELETE, al igual que clientes, NO se realiza borrado fisico: se marca moto.estado = 'Inactivo' (aprox. linea 856) y se guarda. Si ya estaba inactiva, devuelve error de negocio en lugar de eliminar.
+
+Respuesta (Frontend): En frontend/src/Motocicletas.js, tras crear/editar/desactivar exitosamente se refresca el listado con cargarMotos(...), manteniendo trazabilidad historica por estado. La interfaz muestra estado Activo/Inactivo y bloquea nueva desactivacion cuando ya esta inactiva (boton disabled), reforzando la politica de desactivacion logica en vez de DELETE fisico.
+
+--- CU17: Configuración de Perfil Personal ---
+
+Captura de Datos (Frontend): En frontend/src/Perfil.js, el estado de datos personales y contraseña se mantiene en perfil/passwords (aprox. lineas 13-14). El formulario de datos personales se captura con onSubmit={guardarPerfil} (aprox. linea 89), y el formulario de cambio de contraseña con onSubmit={cambiarPassword} (aprox. linea 100).
+
+Envío de Petición (API): En frontend/src/Perfil.js, cargarPerfil() consulta GET /api/perfil/ (aprox. lineas 31-33). guardarPerfil() envia PUT /api/perfil/ con nombre y telefono (aprox. lineas 39-45). cambiarPassword() envia PATCH /api/perfil/ con password_actual, password_nueva y password_confirmacion (aprox. lineas 56-61).
+
+Recepción (Backend - URLs): En backend/config/urls.py se intercepta path('api/perfil/', perfil_api, ...) aprox. linea 49.
+
+Procesamiento (Backend - Views): En backend/taller/views.py, perfil_api(request) aprox. linea 863 procesa GET/PUT/PATCH. En GET serializa datos del usuario (PerfilSerializer, aprox. linea 869). En PUT actualiza nombre/telefono con validacion serializer partial (aprox. lineas 873-877). En PATCH valida contraseña actual con check_password(...) (aprox. linea 889), valida longitud minima y confirmacion (aprox. lineas 892 y 895), encripta con make_password(...) y guarda (aprox. lineas 898-899), registrando auditoria con registrar_bitacora(...) para cambios de perfil y contraseña (aprox. lineas 882 y 900).
+
+Respuesta (Frontend): En frontend/src/Perfil.js, si GET es exitoso se hace setPerfil(data) (aprox. linea 36). Si PUT es exitoso, actualiza localStorage con el nuevo nombre y muestra mensaje OK (aprox. lineas 52-53). Si PATCH es exitoso, limpia los campos de contraseña y muestra confirmacion (aprox. lineas 68-69). Si hay error de validacion o negocio, muestra setError(...).
+
+--- CU20: Auditoría de Operaciones - Bitácora ---
+
+Captura de Datos (Frontend): En frontend/src/Bitacora.js, los filtros de consulta se capturan en el estado filtros (fecha_desde, fecha_hasta, usuario, accion; aprox. linea 9) y se cargan al iniciar desde useEffect/cargarBitacora() (aprox. lineas 16 y 23). La tabla usa el estado registros (aprox. linea 8).
+
+Envío de Petición (API): En frontend/src/Bitacora.js, cargarBitacora() construye query params con fecha_desde/fecha_hasta/usuario/accion (aprox. lineas 30-33), arma la URL de /api/bitacora/ con o sin filtros (aprox. linea 36) y hace fetch autenticado (aprox. linea 38). Para exportacion se usa /api/bitacora/?...&export=csv en exportarCsv() (aprox. lineas 54 y 63).
+
+Recepción (Backend - URLs): En backend/config/urls.py se intercepta path('api/bitacora/', bitacora_api, ...) aprox. linea 35.
+
+Procesamiento (Backend - Views): En backend/taller/views.py, bitacora_api(request) aprox. linea 302 valida autenticacion y rol Administrador, aplica filtros por usuario, accion y rango de fechas (aprox. lineas 313-317), ordena por fecha desc y permite export CSV (aprox. linea 339, encabezados aprox. linea 344). Si no exporta, responde JSON serializado con BitacoraSerializer(registros, many=True) (aprox. linea 356).
+
+Respuesta (Frontend): En frontend/src/Bitacora.js, si el fetch es exitoso guarda los registros con setRegistros(Array.isArray(data) ? data : []) (aprox. linea 51) y renderiza la tabla con registros.map(...) (aprox. linea 150). Si la API responde error, limpia la tabla con setRegistros([]) y muestra setError(...) (aprox. linea 47).
+
+Punto extra (Registro interno + Renderizado): En backend/taller/views.py, la funcion registrar_bitacora(usuario, accion, descripcion) (aprox. linea 36) escribe cada evento con Bitacora.objects.create(...) (aprox. linea 37), guardando usuario, fecha_hora, accion y descripcion. Esa funcion se invoca despues de acciones exitosas en multiples CU (por ejemplo crear/editar usuarios, roles, privilegios, clientes, motocicletas y perfil; ver llamadas aprox. lineas 395, 450, 486, 522, 536, 565, 598, 605, 723, 774, 785, 825, 850, 858, 882, 900, etc.). Luego frontend/src/Bitacora.js consume esos registros con fetch a /api/bitacora/ (aprox. linea 38), los carga en estado con setRegistros(...) (aprox. linea 51) y los pinta en la tabla mediante registros.map(...) (aprox. linea 150), cerrando el flujo completo de auditoria desde la escritura hasta la visualizacion.

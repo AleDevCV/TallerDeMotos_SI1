@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  # 1. LA DESPENSA (Base de Datos)
+  db:
+    image: postgres:15
+    container_name: taller_db_copia
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - postgres_data_copia:/var/lib/postgresql/data
+      # Aquí le diremos a Docker que lea tu script SQL inicial más adelante
+
+  # 2. BUZÓN LOCAL DE CORREOS (Desarrollo)
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: taller_mailpit_copia
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  # 3. EL CEREBRO / CHEF (Backend con Python/Django)
+  backend:
+    build: ./backend
+    container_name: taller_backend_copia
+    command: python manage.py runserver 0.0.0.0:8000
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - DJANGO_DEBUG=${DJANGO_DEBUG}
+      - TOKEN_MAX_AGE_SECONDS=${TOKEN_MAX_AGE_SECONDS}
+
+  # 4. LA CARA / MESERO (Frontend con React)
+  frontend:
+    build: ./frontend
+    container_name: taller_frontend_copia
+    command: npm start
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    environment:
+      - WATCHPACK_POLLING=true
+      - CHOKIDAR_USEPOLLING=true
+
+# Esto crea un disco duro virtual para que tu base de datos no se borre si apagas Docker
+volumes:
+  postgres_data_copia:

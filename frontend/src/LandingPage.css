@@ -1,0 +1,281 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&display=swap');
+
+:root {
+  --lp-logo-size: 120px;
+  --lp-gallery-photo-min-height: 220px;
+  --lp-about-photo-height: 220px;
+  --lp-about-main-photo-height: 260px;
+}
+
+.lp-page {
+  font-family: 'Montserrat', sans-serif;
+  color: #1b1b1b;
+  background: #f5f2ed;
+}
+
+.lp-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 24px;
+  background: rgba(10, 10, 10, 0.85);
+  backdrop-filter: blur(8px);
+}
+
+.lp-brand img {
+  width: var(--lp-logo-size);
+  height: var(--lp-logo-size);
+  object-fit: contain;
+}
+
+.lp-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.lp-nav a {
+  color: #f7f7f7;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.lp-btn {
+  border: 1px solid #f95c19;
+  background: #f95c19;
+  color: #ffffff !important;
+  padding: 8px 14px;
+  border-radius: 999px;
+  text-decoration: none;
+  font-weight: 700;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.lp-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 16px rgba(249, 92, 25, 0.35);
+}
+
+.lp-btn-ghost {
+  background: transparent;
+  border-color: #f7f7f7;
+}
+
+.lp-hero {
+  min-height: 78vh;
+  display: grid;
+  align-items: center;
+  padding: 60px 24px;
+  background-size: cover;
+  background-position: center;
+  color: #ffffff;
+}
+
+.lp-hero-content {
+  max-width: 680px;
+  animation: lp-rise 0.7s ease;
+}
+
+.lp-kicker {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: #ffb38f;
+}
+
+.lp-hero h1 {
+  margin: 10px 0;
+  font-size: clamp(32px, 5vw, 58px);
+  line-height: 1.05;
+}
+
+.lp-hero p {
+  max-width: 620px;
+  line-height: 1.6;
+}
+
+.lp-hero-actions {
+  margin-top: 22px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.lp-section {
+  padding: 60px 24px;
+}
+
+.lp-section-head {
+  max-width: 700px;
+  margin-bottom: 24px;
+}
+
+.lp-section-head p {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #f95c19;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.lp-section-head h2 {
+  margin: 10px 0 0;
+  font-size: clamp(24px, 3vw, 38px);
+}
+
+.lp-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.lp-services-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.lp-card {
+  background: #ffffff;
+  border: 1px solid #e5dfd8;
+  border-radius: 18px;
+  padding: 18px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.06);
+}
+
+.lp-card h3 {
+  margin: 0 0 8px;
+}
+
+.lp-card p {
+  margin: 0;
+  color: #4e4e4e;
+  line-height: 1.5;
+}
+
+.lp-dark {
+  background: #131313;
+  color: #f4f4f4;
+}
+
+.lp-gallery-grid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.lp-photo {
+  margin: 0;
+  border-radius: 16px;
+  overflow: hidden;
+  min-height: var(--lp-gallery-photo-min-height);
+}
+
+.lp-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.35s ease;
+}
+
+.lp-photo:hover img {
+  transform: scale(1.05);
+}
+
+.lp-about {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: 1.1fr 1fr;
+  align-items: center;
+}
+
+.lp-about-media {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.lp-about-media img {
+  width: 100%;
+  height: var(--lp-about-photo-height);
+  object-fit: cover;
+  border-radius: 16px;
+}
+
+.lp-about-media img:first-child {
+  grid-column: span 2;
+  height: var(--lp-about-main-photo-height);
+}
+
+.lp-about-copy p {
+  color: #4e4e4e;
+}
+
+.lp-brands {
+  background: #ede7de;
+}
+
+.lp-brands-track {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
+}
+
+.lp-brand-chip {
+  background: #ffffff;
+  border: 1px solid #ddd6cb;
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 76px;
+}
+
+.lp-brand-chip img {
+  max-width: 90%;
+  max-height: 44px;
+  object-fit: contain;
+}
+
+.lp-footer {
+  background: #111111;
+  color: #f7f7f7;
+  padding: 36px 24px;
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.lp-footer h3 {
+  margin-top: 0;
+}
+
+@keyframes lp-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 900px) {
+  .lp-about {
+    grid-template-columns: 1fr;
+  }
+
+  .lp-header {
+    padding: 10px 14px;
+  }
+
+  .lp-brand img {
+    width: calc(var(--lp-logo-size) * 0.8);
+    height: calc(var(--lp-logo-size) * 0.8);
+  }
+}

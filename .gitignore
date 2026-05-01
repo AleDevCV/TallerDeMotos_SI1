@@ -1,0 +1,41 @@
+# Environment secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.pfx
+*.ppk
+*.der
+
+# Python
+__pycache__/
+*.py[cod]
+*.sqlite3
+*.sqlite3-*
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage/
+*.log
+
+# Node
+node_modules/
+frontend/node_modules/
+frontend/build/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Local/backup data not needed to run
+BACKUP_SQL_SI1/
+PROYECTO APARTE UNIR/
+backend/media/
+backend/staticfiles/
