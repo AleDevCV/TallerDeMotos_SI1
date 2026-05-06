@@ -52,10 +52,10 @@ docker compose exec backend python manage.py createsuperuser
 Hay scripts en `BaseDeDatos/`. Para cargarlos en PostgreSQL:
 
 ```bash
-docker compose exec -T db psql -U usuario_taller -d db_taller_motos < BaseDeDatos/ScriptBaseSi1_motos.pgsql
+docker compose exec -T db psql -U <POSTGRES_USER> -d <POSTGRES_DB> < BaseDeDatos/ScriptBaseSi1_motos.pgsql
 ```
 
-> Ajusta el usuario y base si cambiaste los valores en `.env`.
+> Reemplaza `<POSTGRES_USER>` y `<POSTGRES_DB>` por los valores de tu `.env`.
 
 ## URLs útiles
 
