@@ -57,6 +57,12 @@ docker compose exec -T db psql -U <POSTGRES_USER> -d <POSTGRES_DB> < BaseDeDatos
 
 > Reemplaza `<POSTGRES_USER>` y `<POSTGRES_DB>` por los valores de tu `.env`.
 
+Ejemplo (valores por defecto de `.env.example`):
+
+```bash
+docker compose exec -T db psql -U usuario_taller -d db_taller_motos < BaseDeDatos/ScriptBaseSi1_motos.pgsql
+```
+
 ## URLs útiles
 
 - Frontend: http://localhost:3000
