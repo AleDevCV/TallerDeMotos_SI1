@@ -33,7 +33,7 @@ const Bitacora = () => {
     if (f.accion) params.append('accion', f.accion);
 
     const query = params.toString();
-    const url = query ? `http://localhost:8000/api/bitacora/?${query}` : 'http://localhost:8000/api/bitacora/';
+    const url = query ? `https://tallermotoslaroca.azurewebsites.net/api/bitacora/?${query}` : 'https://tallermotoslaroca.azurewebsites.net/api/bitacora/';
 
     const response = await fetch(url, {
       headers: {
@@ -60,7 +60,7 @@ const Bitacora = () => {
     if (filtros.accion) params.append('accion', filtros.accion);
     params.append('export', 'csv');
 
-    const response = await fetch(`http://localhost:8000/api/bitacora/?${params.toString()}`, {
+    const response = await fetch(`https://tallermotoslaroca.azurewebsites.net/api/bitacora/?${params.toString()}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
 

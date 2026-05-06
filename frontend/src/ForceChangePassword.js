@@ -36,7 +36,7 @@ const ForceChangePassword = () => {
 
     setCargando(true);
     try {
-      const res = await fetch('http://localhost:8000/api/password/force-change/', {
+      const res = await fetch('https://tallermotoslaroca.azurewebsites.net/api/password/force-change/', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

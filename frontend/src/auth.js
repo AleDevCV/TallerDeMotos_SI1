@@ -1,4 +1,4 @@
-const API = 'http://localhost:8000/api';
+const API = 'https://tallermotoslaroca.azurewebsites.net/api';
 
 export const logoutUniversal = async () => {
   const token = localStorage.getItem('token');

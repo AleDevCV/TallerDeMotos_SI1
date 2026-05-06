@@ -16,7 +16,7 @@ const ForgotPasswordRequest = () => {
     setCargando(true);
 
     try {
-      const res = await fetch('http://localhost:8000/api/password/forgot/', {
+      const res = await fetch('https://tallermotoslaroca.azurewebsites.net/api/password/forgot/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),

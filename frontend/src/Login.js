@@ -24,7 +24,7 @@ const Login = () => {
 
     try {
       // Hacemos la petición POST a nuestro servidor Django (Puerto 8000)
-      const respuesta = await fetch('http://localhost:8000/api/login/', {
+      const respuesta = await fetch('https://tallermotoslaroca.azurewebsites.net/api/login/', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -4,7 +4,7 @@ import './Login.css';
 import { getHomeRouteByRole } from './navigation';
 import { PASSWORD_POLICY_MESSAGE, validateStrongPassword } from './passwordPolicy';
 
-const API = 'http://localhost:8000/api';
+const API = 'https://tallermotoslaroca.azurewebsites.net/api';
 
 const Perfil = () => {
   const navigate = useNavigate();

@@ -35,7 +35,7 @@ const ResetPassword = () => {
 
     setCargando(true);
     try {
-      const res = await fetch('http://localhost:8000/api/password/reset/', {
+      const res = await fetch('https://tallermotoslaroca.azurewebsites.net/api/password/reset/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
