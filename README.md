@@ -25,7 +25,7 @@ cp .env.example .env
 - `DJANGO_SECRET_KEY`
 - `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
 - `DB_NAME`, `DB_USER`, `DB_PASSWORD` (deben coincidir con `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`)
-- `DB_HOST` debe ser `db` (nombre del servicio en `docker-compose.yml`)
+- `DB_HOST` debe ser `db` (nombre del servicio definido en el `docker-compose.yml` del repositorio)
 - Opcional: variables de correo (`MAIL_*`) según tu entorno
 
 ## Levantar el proyecto con Docker
@@ -50,7 +50,7 @@ docker compose exec backend python manage.py createsuperuser
 
 ## Datos de ejemplo (opcional)
 
-Hay scripts en `BaseDeDatos/`. Para cargarlos en PostgreSQL:
+Hay scripts en `BaseDeDatos/` (incluidos en este repositorio). Para cargarlos en PostgreSQL:
 
 ```bash
 docker compose exec -T db psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} < BaseDeDatos/ScriptBaseSi1_motos.pgsql
