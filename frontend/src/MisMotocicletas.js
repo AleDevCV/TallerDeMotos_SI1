@@ -2,8 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Login.css';
 import { logoutUniversal } from './auth';
+import { API_BASE_URL } from './config';
 
-const API = 'https://tallermotoslaroca.azurewebsites.net/api';
+const API = `${API_BASE_URL}/api`;
 
 const MisMotocicletas = () => {
   const navigate = useNavigate();

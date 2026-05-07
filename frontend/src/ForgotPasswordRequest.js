@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Login.css';
+import { API_BASE_URL } from './config';
+
+const API = `${API_BASE_URL}/api`;
 
 const ForgotPasswordRequest = () => {
   const navigate = useNavigate();
@@ -16,7 +19,7 @@ const ForgotPasswordRequest = () => {
     setCargando(true);
 
     try {
-      const res = await fetch('https://tallermotoslaroca.azurewebsites.net/api/password/forgot/', {
+      const res = await fetch(`${API}/password/forgot/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),

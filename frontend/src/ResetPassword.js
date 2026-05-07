@@ -2,6 +2,9 @@ import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Login.css';
 import { PASSWORD_POLICY_MESSAGE, validateStrongPassword } from './passwordPolicy';
+import { API_BASE_URL } from './config';
+
+const API = `${API_BASE_URL}/api`;
 
 const ResetPassword = () => {
   const navigate = useNavigate();
@@ -35,7 +38,7 @@ const ResetPassword = () => {
 
     setCargando(true);
     try {
-      const res = await fetch('https://tallermotoslaroca.azurewebsites.net/api/password/reset/', {
+      const res = await fetch(`${API}/password/reset/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

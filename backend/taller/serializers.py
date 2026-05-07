@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from datetime import timezone as dt_timezone
 from zoneinfo import ZoneInfo
-from .models import Usuario, Rol, Privilegio, Bitacora, RolPrivilegio, Cliente, Motocicleta
+from .models import Usuario, Rol, Privilegio, Bitacora, RolPrivilegio, Cliente, Motocicleta, Proveedor
 
 class RolSerializer(serializers.ModelSerializer):
     class Meta:
@@ -66,6 +66,12 @@ class MotocicletaSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Motocicleta
+        fields = '__all__'
+
+
+class ProveedorSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Proveedor
         fields = '__all__'
 
 

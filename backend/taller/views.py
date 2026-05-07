@@ -1,4 +1,5 @@
 from rest_framework.decorators import api_view
+from rest_framework import viewsets
 from rest_framework.response import Response
 from django.contrib.auth.hashers import check_password
 from django.core import signing # Para generar el Token de sesión
@@ -16,7 +17,7 @@ import uuid
 import csv
 import re
 import unicodedata
-from .models import Usuario, Bitacora, Rol, Privilegio, Cliente, Motocicleta, Cotizacion
+from .models import Usuario, Bitacora, Rol, Privilegio, Cliente, Motocicleta, Cotizacion, Proveedor
 from .serializers import BitacoraSerializer
 from .serializers import (
     UsuarioSerializer,
@@ -25,6 +26,7 @@ from .serializers import (
     ClienteSerializer,
     MotocicletaSerializer,
     PerfilSerializer,
+    ProveedorSerializer,
 )
 from django.contrib.auth.hashers import make_password
 
@@ -902,6 +904,87 @@ def motocicleta_detalle_api(request, motocicleta_id):
     moto.save(update_fields=['estado'])
     registrar_bitacora(usuario_sesion, 'MODIFICACIÓN', f"Desactivó motocicleta placa {moto.placa}.")
     return Response({"exito": True, "mensaje": "Motocicleta desactivada."}, status=200)
+
+
+# ==========================================
+# CU13: GESTIONAR PROVEEDORES (API REST)
+# ==========================================
+class ProveedorViewSet(viewsets.ModelViewSet):
+    queryset = Proveedor.objects.all().order_by('codigo')
+    serializer_class = ProveedorSerializer
+
+    def _autorizar_admin(self, request):
+        usuario_sesion, error_auth = obtener_usuario_autenticado(request)
+        if error_auth:
+            return None, error_auth
+
+        error_admin = exigir_admin(usuario_sesion)
+        if error_admin:
+            return None, error_admin
+
+        self._usuario_sesion = usuario_sesion
+        return usuario_sesion, None
+
+    def list(self, request, *args, **kwargs):
+        _, error = self._autorizar_admin(request)
+        if error:
+            return error
+        return super().list(request, *args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        _, error = self._autorizar_admin(request)
+        if error:
+            return error
+        return super().retrieve(request, *args, **kwargs)
+
+    def create(self, request, *args, **kwargs):
+        _, error = self._autorizar_admin(request)
+        if error:
+            return error
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        _, error = self._autorizar_admin(request)
+        if error:
+            return error
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        _, error = self._autorizar_admin(request)
+        if error:
+            return error
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        _, error = self._autorizar_admin(request)
+        if error:
+            return error
+        return super().destroy(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        proveedor = serializer.save()
+        registrar_bitacora(
+            self._usuario_sesion,
+            'CREACIÓN',
+            f"Registró proveedor: {proveedor.empresa}.",
+        )
+
+    def perform_update(self, serializer):
+        proveedor = serializer.save()
+        registrar_bitacora(
+            self._usuario_sesion,
+            'MODIFICACIÓN',
+            f"Actualizó proveedor: {proveedor.empresa}.",
+        )
+
+    def perform_destroy(self, instance):
+        nombre_proveedor = instance.empresa
+        instance.delete()
+        registrar_bitacora(
+            self._usuario_sesion,
+            'ELIMINACIÓN',
+            f"Eliminó proveedor: {nombre_proveedor}.",
+        )
 
 
 @api_view(['GET', 'PUT', 'PATCH'])

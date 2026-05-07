@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import './Login.css';
 import { getHomeRouteByRole } from './navigation';
 import { PASSWORD_POLICY_MESSAGE, validateStrongPassword } from './passwordPolicy';
+import { API_BASE_URL } from './config';
 
-const API = 'https://tallermotoslaroca.azurewebsites.net/api';
+const API = `${API_BASE_URL}/api`;
 
 const Perfil = () => {
   const navigate = useNavigate();

@@ -5,8 +5,10 @@ import './Login.css'; // Reutilizamos los colores y estilos base
 import { logoutUniversal } from './auth';
 import { getHomeRouteByRole } from './navigation';
 import { repairText } from './textNormalization';
+import { API_BASE_URL } from './config';
 
 const CLIENT_TEMP_PASSWORD = 'zaq12wsx';
+const API = `${API_BASE_URL}/api`;
 
 const normalizarTextoCorreo = (texto) => {
   return (texto || '')
@@ -71,7 +73,7 @@ const Usuarios = () => {
     setOk('');
 
     // Pedimos los usuarios
-    fetch('https://tallermotoslaroca.azurewebsites.net/api/usuarios/', {
+    fetch(`${API}/usuarios/`, {
       headers: {
         'Authorization': `Bearer ${token}`,
       },
@@ -84,7 +86,7 @@ const Usuarios = () => {
       .catch((err) => setError(err.message));
     
     // Pedimos los roles (Para llenar el "select" del formulario)
-    fetch('https://tallermotoslaroca.azurewebsites.net/api/roles/', {
+    fetch(`${API}/roles/`, {
       headers: {
         'Authorization': `Bearer ${token}`,
       },
@@ -103,10 +105,10 @@ const Usuarios = () => {
       setOk('');
       const token = localStorage.getItem('token');
       const [clientesRes, usuariosRes] = await Promise.all([
-        fetch('https://tallermotoslaroca.azurewebsites.net/api/clientes/', {
+        fetch(`${API}/clientes/`, {
           headers: { 'Authorization': `Bearer ${token}` },
         }),
-        fetch('https://tallermotoslaroca.azurewebsites.net/api/usuarios/', {
+        fetch(`${API}/usuarios/`, {
           headers: { 'Authorization': `Bearer ${token}` },
         }),
       ]);
@@ -150,7 +152,7 @@ const Usuarios = () => {
       }
 
       const email = generarCorreoCliente(cliente.nombre, usuarios);
-      const respuesta = await fetch('https://tallermotoslaroca.azurewebsites.net/api/usuarios/', {
+      const respuesta = await fetch(`${API}/usuarios/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -187,7 +189,7 @@ const Usuarios = () => {
     e.preventDefault();
     try {
       const token = localStorage.getItem('token');
-      const respuesta = await fetch('https://tallermotoslaroca.azurewebsites.net/api/usuarios/', {
+      const respuesta = await fetch(`${API}/usuarios/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -229,7 +231,7 @@ const Usuarios = () => {
 
     try {
       const token = localStorage.getItem('token');
-      const respuesta = await fetch(`https://tallermotoslaroca.azurewebsites.net/api/usuarios/${usuarioEdicion.codigo}/`, {
+      const respuesta = await fetch(`${API}/usuarios/${usuarioEdicion.codigo}/`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -259,7 +261,7 @@ const Usuarios = () => {
 
     try {
       const token = localStorage.getItem('token');
-      const respuesta = await fetch(`https://tallermotoslaroca.azurewebsites.net/api/usuarios/${usuario.codigo}/`, {
+      const respuesta = await fetch(`${API}/usuarios/${usuario.codigo}/`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

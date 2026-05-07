@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import './Login.css'; // Reutilizamos tu fondo oscuro
 import { logoutUniversal } from './auth';
 import { formatServerDateToLaPaz, repairText } from './textNormalization';
+import { API_BASE_URL } from './config';
+
+const API = `${API_BASE_URL}/api`;
 
 const Bitacora = () => {
   const [registros, setRegistros] = useState([]);
@@ -33,7 +36,7 @@ const Bitacora = () => {
     if (f.accion) params.append('accion', f.accion);
 
     const query = params.toString();
-    const url = query ? `https://tallermotoslaroca.azurewebsites.net/api/bitacora/?${query}` : 'https://tallermotoslaroca.azurewebsites.net/api/bitacora/';
+    const url = query ? `${API}/bitacora/?${query}` : `${API}/bitacora/`;
 
     const response = await fetch(url, {
       headers: {
@@ -60,7 +63,7 @@ const Bitacora = () => {
     if (filtros.accion) params.append('accion', filtros.accion);
     params.append('export', 'csv');
 
-    const response = await fetch(`https://tallermotoslaroca.azurewebsites.net/api/bitacora/?${params.toString()}`, {
+    const response = await fetch(`${API}/bitacora/?${params.toString()}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
 
@@ -110,6 +113,11 @@ const cerrarSesion = async () => {
           {(usuarioLocal?.rol === 'Administrador' || usuarioLocal?.rol === 'Recepcionista') && (
             <button onClick={() => navigate('/motocicletas')} style={{ marginRight: '10px', padding: '8px 16px', backgroundColor: '#ff6600', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>
               Motocicletas
+            </button>
+          )}
+          {usuarioLocal?.rol === 'Administrador' && (
+            <button onClick={() => navigate('/proveedores')} style={{ marginRight: '10px', padding: '8px 16px', backgroundColor: '#ff6600', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>
+              Proveedores
             </button>
           )}
           <button onClick={() => navigate('/perfil')} style={{ marginRight: '10px', padding: '8px 16px', backgroundColor: '#ff6600', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>
