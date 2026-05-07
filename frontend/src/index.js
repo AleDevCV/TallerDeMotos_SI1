@@ -9,6 +9,7 @@ import RolesPermisos from './RolesPermisos';
 import Clientes from './Clientes';
 import Motocicletas from './Motocicletas';
 import Proveedores from './Proveedores';
+import Productos from './Productos';
 import Perfil from './Perfil';
 import MisMotocicletas from './MisMotocicletas';
 import InicioOperativo from './InicioOperativo';
@@ -34,6 +35,7 @@ root.render(
         <Route path="/usuarios" element={<Usuarios />} />
         <Route path="/roles-permisos" element={<RolesPermisos />} />
         <Route path="/clientes" element={<Clientes />} />
+        <Route path="/productos" element={<Productos />} />
         <Route path="/proveedores" element={<Proveedores />} />
         <Route path="/motocicletas" element={<Motocicletas />} />
         <Route path="/mis-motocicletas" element={<MisMotocicletas />} />

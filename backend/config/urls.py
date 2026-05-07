@@ -22,6 +22,7 @@ from taller.views import (
     aceptar_cotizacion_api,
     logout_api,
     ProveedorViewSet,
+    ProductoViewSet,
 )
 
 proveedores_api = ProveedorViewSet.as_view({
@@ -29,6 +30,17 @@ proveedores_api = ProveedorViewSet.as_view({
     'post': 'create',
 })
 proveedor_detalle_api = ProveedorViewSet.as_view({
+    'get': 'retrieve',
+    'put': 'update',
+    'patch': 'partial_update',
+    'delete': 'destroy',
+})
+
+productos_api = ProductoViewSet.as_view({
+    'get': 'list',
+    'post': 'create',
+})
+producto_detalle_api = ProductoViewSet.as_view({
     'get': 'retrieve',
     'put': 'update',
     'patch': 'partial_update',
@@ -60,6 +72,8 @@ urlpatterns = [
     path('api/mis-motocicletas/', mis_motocicletas_api, name='api_mis_motocicletas'),
     path('api/proveedores/', proveedores_api, name='api_proveedores'),
     path('api/proveedores/<int:pk>/', proveedor_detalle_api, name='api_proveedor_detalle'),
+    path('api/productos/', productos_api, name='api_productos'),
+    path('api/productos/<int:pk>/', producto_detalle_api, name='api_producto_detalle'),
     path('api/perfil/', perfil_api, name='api_perfil'),
     path('api/cotizaciones/<int:cotizacion_id>/aceptar/', aceptar_cotizacion_api, name='api_cotizacion_aceptar'),
 ]

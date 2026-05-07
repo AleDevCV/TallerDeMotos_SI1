@@ -17,7 +17,7 @@ import uuid
 import csv
 import re
 import unicodedata
-from .models import Usuario, Bitacora, Rol, Privilegio, Cliente, Motocicleta, Cotizacion, Proveedor
+from .models import Usuario, Bitacora, Rol, Privilegio, Cliente, Motocicleta, Cotizacion, Proveedor, Producto
 from .serializers import BitacoraSerializer
 from .serializers import (
     UsuarioSerializer,
@@ -27,6 +27,7 @@ from .serializers import (
     MotocicletaSerializer,
     PerfilSerializer,
     ProveedorSerializer,
+    ProductoSerializer,
 )
 from django.contrib.auth.hashers import make_password
 
@@ -984,6 +985,87 @@ class ProveedorViewSet(viewsets.ModelViewSet):
             self._usuario_sesion,
             'ELIMINACIÓN',
             f"Eliminó proveedor: {nombre_proveedor}.",
+        )
+
+
+# ==========================================
+# CU10: GESTIONAR PRODUCTOS (API REST)
+# ==========================================
+class ProductoViewSet(viewsets.ModelViewSet):
+    queryset = Producto.objects.all().order_by('codigo')
+    serializer_class = ProductoSerializer
+
+    def _autorizar_admin(self, request):
+        usuario_sesion, error_auth = obtener_usuario_autenticado(request)
+        if error_auth:
+            return None, error_auth
+
+        error_admin = exigir_admin(usuario_sesion)
+        if error_admin:
+            return None, error_admin
+
+        self._usuario_sesion = usuario_sesion
+        return usuario_sesion, None
+
+    def list(self, request, *args, **kwargs):
+        _, error = self._autorizar_admin(request)
+        if error:
+            return error
+        return super().list(request, *args, **kwargs)
+
+    def retrieve(self, request, *args, **kwargs):
+        _, error = self._autorizar_admin(request)
+        if error:
+            return error
+        return super().retrieve(request, *args, **kwargs)
+
+    def create(self, request, *args, **kwargs):
+        _, error = self._autorizar_admin(request)
+        if error:
+            return error
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        _, error = self._autorizar_admin(request)
+        if error:
+            return error
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        _, error = self._autorizar_admin(request)
+        if error:
+            return error
+        return super().partial_update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        _, error = self._autorizar_admin(request)
+        if error:
+            return error
+        return super().destroy(request, *args, **kwargs)
+
+    def perform_create(self, serializer):
+        producto = serializer.save()
+        registrar_bitacora(
+            self._usuario_sesion,
+            'CREACIÓN',
+            f"Registró producto: {producto.nombre}.",
+        )
+
+    def perform_update(self, serializer):
+        producto = serializer.save()
+        registrar_bitacora(
+            self._usuario_sesion,
+            'MODIFICACIÓN',
+            f"Actualizó producto: {producto.nombre}.",
+        )
+
+    def perform_destroy(self, instance):
+        nombre_producto = instance.nombre
+        instance.delete()
+        registrar_bitacora(
+            self._usuario_sesion,
+            'ELIMINACIÓN',
+            f"Eliminó producto: {nombre_producto}.",
         )
 
 
