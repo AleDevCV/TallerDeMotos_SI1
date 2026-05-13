@@ -7,12 +7,16 @@ from .models import (
     Privilegio,
     Bitacora,
     RolPrivilegio,
+    PermisoModulo,
     Cliente,
     Motocicleta,
     Proveedor,
     Producto,
     Cotizacion,
     Detallecotizacion,
+    Ordentrabajo,
+    Notatrabajo,
+    Detalleordentrabajo,
     Compra,
     Detallecompra,
 )
@@ -95,74 +99,62 @@ class ProductoSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
-class DetalleCompraSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Detallecompra
-        fields = ['codigo', 'id_producto', 'cantidad', 'precio_compra', 'subtotal']
-        read_only_fields = ['codigo']
-
-
-class CompraSerializer(serializers.ModelSerializer):
-    detalles = DetalleCompraSerializer(source='detallecompra_set', many=True)
-
-    class Meta:
-        model = Compra
-        fields = [
-            'codigo',
-            'id_proveedor',
-            'numero_factura',
-            'fecha',
-            'subtotal',
-            'impuesto',
-            'total',
-            'metodo_pago',
-            'estado',
-            'detalles',
-        ]
-
-    def create(self, validated_data):
-        detalles_data = validated_data.pop('detallecompra_set', [])
-        compra = Compra.objects.create(**validated_data)
-
-        for detalle in detalles_data:
-            Detallecompra.objects.create(id_compra=compra, **detalle)
-
-        return compra
-
-
 class DetalleCotizacionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Detallecotizacion
-        fields = ['codigo', 'tipo', 'descripcion', 'cantidad', 'precio_unitario', 'subtotal']
-        read_only_fields = ['codigo']
+        fields = '__all__'
 
 
 class CotizacionSerializer(serializers.ModelSerializer):
-    detalles = DetalleCotizacionSerializer(source='detallecotizacion_set', many=True)
+    id_cliente_nombre = serializers.ReadOnlyField(source='id_cliente.nombre')
+    id_motocicleta_placa = serializers.ReadOnlyField(source='id_motocicleta.placa')
 
     class Meta:
         model = Cotizacion
-        fields = [
-            'codigo',
-            'id_cliente',
-            'id_motocicleta',
-            'fecha_emision',
-            'fecha_validez',
-            'subtotal',
-            'impuesto',
-            'total',
-            'estado',
-            'detalles',
-        ]
+        fields = '__all__'
 
-    def create(self, validated_data):
-        detalles_data = validated_data.pop('detallecotizacion_set', [])
-        cotizacion = Cotizacion.objects.create(**validated_data)
 
-        for detalle in detalles_data:
-            Detallecotizacion.objects.create(id_cotizacion=cotizacion, **detalle)
+class OrdenTrabajoSerializer(serializers.ModelSerializer):
+    cliente_nombre = serializers.ReadOnlyField(source='id_cliente.nombre')
+    motocicleta_placa = serializers.ReadOnlyField(source='id_motocicleta.placa')
+    mecanico_nombre = serializers.ReadOnlyField(source='id_mecanico.nombre')
 
-        return cotizacion
+    class Meta:
+        model = Ordentrabajo
+        fields = '__all__'
+
+
+class NotaTrabajoSerializer(serializers.ModelSerializer):
+    orden_numero = serializers.ReadOnlyField(source='id_orden_trabajo.codigo')
+    mecanico_nombre = serializers.ReadOnlyField(source='id_mecanico.nombre')
+
+    class Meta:
+        model = Notatrabajo
+        fields = '__all__'
+
+
+class CompraSerializer(serializers.ModelSerializer):
+    proveedor_empresa = serializers.ReadOnlyField(source='id_proveedor.empresa')
+
+    class Meta:
+        model = Compra
+        fields = '__all__'
+
+
+class DetalleCompraSerializer(serializers.ModelSerializer):
+    producto_nombre = serializers.ReadOnlyField(source='id_producto.nombre')
+
+    class Meta:
+        model = Detallecompra
+        fields = '__all__'
+
+
+class DetalleOrdenTrabajoSerializer(serializers.ModelSerializer):
+    producto_nombre = serializers.ReadOnlyField(source='id_producto.nombre')
+
+    class Meta:
+        model = Detalleordentrabajo
+        fields = '__all__'
 
 
 class PerfilSerializer(serializers.ModelSerializer):
@@ -171,3 +163,11 @@ class PerfilSerializer(serializers.ModelSerializer):
     class Meta:
         model = Usuario
         fields = ['codigo', 'nombre', 'email', 'telefono', 'estado', 'rol_nombre']
+
+
+class PermisoModuloSerializer(serializers.ModelSerializer):
+    rol_nombre = serializers.ReadOnlyField(source='id_rol.nombre')
+
+    class Meta:
+        model = PermisoModulo
+        fields = ['id', 'id_rol', 'rol_nombre', 'codigo_cu', 'nombre_modulo', 'accion', 'permitido']

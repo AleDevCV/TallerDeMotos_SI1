@@ -13,6 +13,8 @@ const Perfil = () => {
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
   const [perfil, setPerfil] = useState({ nombre: '', email: '', telefono: '', rol_nombre: '' });
+  const [permisosPerfil, setPermisosPerfil] = useState([]);
+  const [permisosCargando, setPermisosCargando] = useState(false);
   const [passwords, setPasswords] = useState({ password_actual: '', password_nueva: '', password_confirmacion: '' });
 
   const headers = (json = true) => {
@@ -20,6 +22,28 @@ const Perfil = () => {
     return json
       ? { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
       : { Authorization: `Bearer ${token}` };
+  };
+
+  const cargarPermisosPerfil = async (rolNombre) => {
+    setPermisosCargando(true);
+    try {
+      const res = await fetch(`${API}/permisos/`, { headers: headers(false) });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'No se pudo cargar los permisos del perfil.');
+        return;
+      }
+
+      const filtrados = data.filter(
+        (permiso) => permiso.rol_nombre === rolNombre && permiso.permitido
+      );
+      setPermisosPerfil(filtrados);
+    } catch (err) {
+      console.error('Error cargando permisos del perfil:', err);
+      setError('No se pudo cargar los permisos del perfil.');
+    } finally {
+      setPermisosCargando(false);
+    }
   };
 
   useEffect(() => {
@@ -36,6 +60,9 @@ const Perfil = () => {
     const data = await res.json();
     if (!res.ok) return setError(data.error || 'No se pudo cargar perfil.');
     setPerfil(data);
+    if (data.rol_nombre) {
+      cargarPermisosPerfil(data.rol_nombre);
+    }
   };
 
   const guardarPerfil = async (e) => {
@@ -118,6 +145,37 @@ const Perfil = () => {
             <div className="input-group"><label>Confirmar nueva contraseña</label><input type="password" value={passwords.password_confirmacion} onChange={(e) => setPasswords({ ...passwords, password_confirmacion: e.target.value })} required /></div>
             <button type="submit" className="btn-login">Actualizar contraseña</button>
           </form>
+        </div>
+
+        <div style={{ backgroundColor: '#1e1e1e', padding: '20px', borderRadius: '10px' }}>
+          <h3>Accesos asignados</h3>
+          {permisosCargando ? (
+            <p>Cargando permisos...</p>
+          ) : permisosPerfil.length === 0 ? (
+            <p>No hay permisos asignados para este rol.</p>
+          ) : (
+            <div style={{ maxHeight: '320px', overflowY: 'auto' }}>
+              {Object.values(
+                permisosPerfil.reduce((acc, permiso) => {
+                  const key = `${permiso.codigo_cu}_${permiso.nombre_modulo}`;
+                  if (!acc[key]) {
+                    acc[key] = {
+                      codigo_cu: permiso.codigo_cu,
+                      nombre_modulo: permiso.nombre_modulo,
+                      acciones: [],
+                    };
+                  }
+                  acc[key].acciones.push(permiso.accion);
+                  return acc;
+                }, {})
+              ).map((permiso) => (
+                <div key={`${permiso.codigo_cu}_${permiso.nombre_modulo}`} style={{ marginBottom: '12px' }}>
+                  <strong style={{ color: '#ff6600' }}>{permiso.codigo_cu} – {permiso.nombre_modulo}</strong>
+                  <div style={{ marginTop: '6px', color: '#ccc' }}>{permiso.acciones.join(', ')}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

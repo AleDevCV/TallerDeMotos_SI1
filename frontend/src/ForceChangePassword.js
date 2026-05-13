@@ -5,8 +5,6 @@ import { getHomeRouteByRole } from './navigation';
 import { PASSWORD_POLICY_MESSAGE, validateStrongPassword } from './passwordPolicy';
 import { API_BASE_URL } from './config';
 
-const API = `${API_BASE_URL}/api`;
-
 const ForceChangePassword = () => {
   const navigate = useNavigate();
   const [passwordNueva, setPasswordNueva] = useState('');
@@ -39,7 +37,7 @@ const ForceChangePassword = () => {
 
     setCargando(true);
     try {
-      const res = await fetch(`${API}/password/force-change/`, {
+      const res = await fetch(`${API_BASE_URL}/api/password/force-change/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

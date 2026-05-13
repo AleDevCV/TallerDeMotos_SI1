@@ -1,4 +1,7 @@
-export const API_BASE_URL = 'https://tallermotoslaroca.azurewebsites.net'; 
-// Production: https://tallermotoslaroca.azurewebsites.net
-// export const API_BASE_URL = 'http://localhost:8000'; 
-// localhost: http://localhost:8000
+const DEFAULT_API_BASE_URL =
+	process.env.NODE_ENV === 'production'
+		? 'https://tallermotoslaroca.azurewebsites.net'
+		: 'http://localhost:8000';
+
+export const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || DEFAULT_API_BASE_URL)
+	.replace(/\/$/, '');

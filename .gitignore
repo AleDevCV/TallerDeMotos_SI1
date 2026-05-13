@@ -39,3 +39,4 @@ BACKUP_SQL_SI1/
 PROYECTO APARTE UNIR/
 backend/media/
 backend/staticfiles/
+_backup_*/

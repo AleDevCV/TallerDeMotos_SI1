@@ -1,5 +1,4 @@
 from rest_framework.decorators import api_view
-from rest_framework import viewsets
 from rest_framework.response import Response
 from django.contrib.auth.hashers import check_password
 from django.core import signing # Para generar el Token de sesión
@@ -9,25 +8,32 @@ from django.utils import timezone
 from django.http import HttpResponse
 from django.core.mail import send_mail
 from django.core.cache import cache
-from django.db import connection, transaction
-from django.db.models import Q
+from django.db import connection, OperationalError
+from django.db.models import Q, F
 from django.utils.dateparse import parse_date
 import math
 import uuid
 import csv
 import re
 import unicodedata
+from decimal import Decimal, InvalidOperation
 from .models import (
     Usuario,
     Bitacora,
     Rol,
     Privilegio,
+    PermisoModulo,
     Cliente,
     Motocicleta,
     Cotizacion,
-    Proveedor,
+    Detallecotizacion,
+    Detalleordentrabajo,
+    Ordentrabajo,
+    Notatrabajo,
     Producto,
+    Proveedor,
     Compra,
+    Detallecompra,
 )
 from .serializers import BitacoraSerializer
 from .serializers import (
@@ -37,10 +43,13 @@ from .serializers import (
     ClienteSerializer,
     MotocicletaSerializer,
     PerfilSerializer,
-    CotizacionSerializer,
     ProveedorSerializer,
     ProductoSerializer,
+    CotizacionSerializer,
+    OrdenTrabajoSerializer,
+    NotaTrabajoSerializer,
     CompraSerializer,
+    PermisoModuloSerializer,
 )
 from django.contrib.auth.hashers import make_password
 
@@ -108,6 +117,39 @@ def exigir_roles(usuario, roles_permitidos):
     if usuario.id_rol.nombre not in roles_permitidos:
         return Response({"exito": False, "error": "No autorizado para esta operación."}, status=403)
     return None
+
+
+def ensure_permiso_modulo_table():
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_name = 'permiso_modulo'
+            )
+            """
+        )
+        if not cursor.fetchone()[0]:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS public.permiso_modulo (
+                    id serial PRIMARY KEY,
+                    id_rol integer NOT NULL REFERENCES rol(codigo),
+                    codigo_cu varchar(20) NOT NULL,
+                    nombre_modulo varchar(255) NOT NULL,
+                    accion varchar(50) NOT NULL,
+                    permitido boolean NOT NULL DEFAULT false
+                )
+                """
+            )
+            cursor.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS permiso_modulo_unique_idx
+                ON public.permiso_modulo (id_rol, codigo_cu, nombre_modulo, accion)
+                """
+            )
 
 
 def normalizar_usuario_desde_nombre(nombre_completo):
@@ -246,6 +288,164 @@ def _resolver_destinatario_reset_online(usuario):
     local_inbox, dominio_inbox = inbox.split('@', 1)
     alias = _normalizar_alias_destinatario(destinatario_original.split('@', 1)[0])
     return f"{local_inbox}+{alias}@{dominio_inbox}"
+
+
+def _normalizar_decimal(valor):
+    if valor is None or valor == '':
+        return None
+    try:
+        return Decimal(str(valor))
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+
+
+def _validar_detalle_cotizacion(detalle):
+    if not isinstance(detalle, dict):
+        return None, "Cada detalle debe ser un objeto válido."
+
+    tipo = (detalle.get('tipo') or '').strip()
+    descripcion = (detalle.get('descripcion') or '').strip()
+    cantidad_raw = detalle.get('cantidad')
+    cantidad = None
+    try:
+        cantidad = int(cantidad_raw)
+    except (TypeError, ValueError):
+        return None, "La cantidad del item debe ser un número entero."
+
+    if cantidad <= 0:
+        return None, "La cantidad del item debe ser mayor que cero."
+
+    id_producto = detalle.get('id_producto')
+    precio_unitario = _normalizar_decimal(detalle.get('precio_unitario'))
+    subtotal = _normalizar_decimal(detalle.get('subtotal'))
+
+    if id_producto not in (None, ''):
+        try:
+            producto = Producto.objects.get(codigo=id_producto)
+        except Producto.DoesNotExist:
+            return None, f"Producto con id {id_producto} no encontrado."
+
+        if not tipo:
+            tipo = 'Producto'
+        if not descripcion:
+            descripcion = producto.nombre or 'Producto'
+        if precio_unitario is None:
+            precio_unitario = producto.precio_venta
+
+    if not tipo:
+        return None, "El tipo del item es obligatorio."
+
+    if not descripcion:
+        return None, "La descripción del item es obligatoria."
+
+    if precio_unitario is None or precio_unitario < 0:
+        return None, "El precio unitario del item es inválido."
+
+    subtotal_esperado = precio_unitario * Decimal(cantidad)
+    if subtotal is None:
+        subtotal = subtotal_esperado
+    elif subtotal != subtotal_esperado:
+        return None, "El subtotal del item no coincide con cantidad * precio_unitario."
+
+    return {
+        'tipo': tipo,
+        'descripcion': descripcion,
+        'cantidad': cantidad,
+        'precio_unitario': precio_unitario,
+        'subtotal': subtotal,
+    }, None
+
+
+def _validar_cliente_motocicleta_para_cotizacion(cliente, motocicleta):
+    if not cliente:
+        return "Cliente no encontrado."
+
+    if (cliente.estado or 'Activo') != 'Activo':
+        return "El cliente debe estar activo para generar cotizaciones."
+
+    if not motocicleta:
+        return "Motocicleta no encontrada."
+
+    if (motocicleta.estado or 'Activo') != 'Activo':
+        return "La motocicleta debe estar activa para generar cotizaciones."
+
+    if motocicleta.id_cliente_id != cliente.codigo:
+        return "La motocicleta no pertenece al cliente seleccionado."
+
+    return None
+
+
+def _validar_detalle_orden_trabajo(detalle):
+    if not isinstance(detalle, dict):
+        return None, "Cada detalle debe ser un objeto válido."
+
+    tipo = (detalle.get('tipo') or '').strip()
+    descripcion = (detalle.get('descripcion') or '').strip()
+    cantidad_raw = detalle.get('cantidad')
+    try:
+        cantidad = int(cantidad_raw)
+    except (TypeError, ValueError):
+        return None, "La cantidad del detalle debe ser un número entero."
+
+    if cantidad <= 0:
+        return None, "La cantidad del detalle debe ser mayor que cero."
+
+    id_producto = detalle.get('id_producto')
+    precio_unitario = _normalizar_decimal(detalle.get('precio_unitario'))
+    subtotal = _normalizar_decimal(detalle.get('subtotal'))
+    provisto_por_cliente = detalle.get('provisto_por_cliente', False)
+    provisto_por_cliente = bool(provisto_por_cliente)
+
+    producto = None
+    if id_producto not in (None, ''):
+        try:
+            producto = Producto.objects.get(codigo=id_producto)
+        except Producto.DoesNotExist:
+            return None, f"Producto con id {id_producto} no encontrado."
+
+        if not tipo:
+            tipo = 'Repuesto'
+        if not descripcion:
+            descripcion = producto.nombre or 'Repuesto'
+        if precio_unitario is None:
+            precio_unitario = producto.precio_venta
+
+    if not tipo:
+        return None, "El tipo del detalle es obligatorio."
+
+    if not descripcion:
+        return None, "La descripción del detalle es obligatoria."
+
+    if precio_unitario is None or precio_unitario < 0:
+        return None, "El precio unitario del detalle es inválido."
+
+    subtotal_esperado = precio_unitario * Decimal(cantidad)
+    if subtotal is None:
+        subtotal = subtotal_esperado
+    elif subtotal != subtotal_esperado:
+        return None, "El subtotal del detalle no coincide con cantidad * precio_unitario."
+
+    return {
+        'id_producto': producto,
+        'tipo': tipo,
+        'descripcion': descripcion,
+        'cantidad': cantidad,
+        'provisto_por_cliente': provisto_por_cliente,
+        'precio_unitario': precio_unitario,
+        'subtotal': subtotal,
+    }, None
+
+
+def _validar_orden_para_nota(orden):
+    if not orden:
+        return "Orden de trabajo no encontrada."
+
+    estado = (orden.estado or '').strip()
+    if estado not in ('Abierta', 'En progreso'):
+        return "La orden de trabajo debe estar Abierta o En progreso para registrar una nota."
+
+    return None
+
 
 # ==========================================
 # CU01: GESTIONAR INICIO DE SESIÓN
@@ -598,7 +798,7 @@ def rol_detalle_api(request, rol_id):
     return Response({"exito": True, "mensaje": "Rol eliminado."}, status=200)
 
 
-@api_view(['GET', 'POST'])
+@api_view(['GET', 'POST'])  
 def privilegios_api(request):
     usuario_sesion, error_auth = obtener_usuario_autenticado(request)
     if error_auth:
@@ -745,7 +945,9 @@ def roles_privilegios_api(request):
     registrar_bitacora(usuario_sesion, 'ELIMINACIÓN', f"Revocó privilegio '{privilegio.nombre}' del rol '{rol.nombre}'.")
     return Response({"exito": True, "mensaje": "Privilegio revocado del rol."}, status=200)
 
-
+# ==========================================
+# CU05 GESTION DE CLIENTES
+# ==========================================
 @api_view(['GET', 'POST'])
 def clientes_api(request):
     usuario_sesion, error_auth = obtener_usuario_autenticado(request)
@@ -846,7 +1048,9 @@ def cliente_detalle_api(request, cliente_id):
     registrar_bitacora(usuario_sesion, 'MODIFICACIÓN', f"Desactivó cliente: {cliente.nombre}.")
     return Response({"exito": True, "mensaje": "Cliente desactivado."}, status=200)
 
-
+# ==========================================
+# CU06: GESTIONAR MOTOCICLETAS 
+# ==========================================
 @api_view(['GET', 'POST'])
 def motocicletas_api(request):
     usuario_sesion, error_auth = obtener_usuario_autenticado(request)
@@ -919,300 +1123,864 @@ def motocicleta_detalle_api(request, motocicleta_id):
     registrar_bitacora(usuario_sesion, 'MODIFICACIÓN', f"Desactivó motocicleta placa {moto.placa}.")
     return Response({"exito": True, "mensaje": "Motocicleta desactivada."}, status=200)
 
+# ==========================================
+# CU13: ADMINISTRAR PROVEEDORES
+# ==========================================
+@api_view(['GET', 'POST'])
+def proveedores_api(request):
+    usuario_sesion, error_auth = obtener_usuario_autenticado(request)
+    if error_auth:
+        return error_auth
+
+    error_rol = exigir_roles(usuario_sesion, ['Administrador', 'Recepcionista'])
+    if error_rol:
+        return error_rol
+
+    if request.method == 'GET':
+        proveedores = Proveedores.mostrarProveedor()
+        serializer = ProveedorSerializer(proveedores, many=True)
+        return Response(serializer.data, status=200)
+
+    serializer = Proveedores.verificarDatosProveedor(request.data)
+    if not serializer.is_valid():
+        return Response({"exito": False, "errores": serializer.errors}, status=400)
+
+    proveedor = Proveedores.registrarNuevoProveedor(serializer.validated_data)
+    Proveedores.notificarActualizacion(usuario_sesion, proveedor)
+    confirmacion = Proveedores.RetornaDatosYConfirmacion(True)
+    return Response({"exito": True, "mensaje": "Proveedor creado.", **confirmacion}, status=201)
+
+
+@api_view(['PUT', 'DELETE'])
+def proveedor_detalle_api(request, proveedor_id):
+    usuario_sesion, error_auth = obtener_usuario_autenticado(request)
+    if error_auth:
+        return error_auth
+
+    error_rol = exigir_roles(usuario_sesion, ['Administrador', 'Recepcionista'])
+    if error_rol:
+        return error_rol
+
+    try:
+        proveedor = Proveedor.objects.get(codigo=proveedor_id)
+    except Proveedor.DoesNotExist:
+        return Response({"exito": False, "error": "Proveedor no encontrado."}, status=404)
+
+    if request.method == 'PUT':
+        serializer = ProveedorSerializer(proveedor, data=request.data, partial=True)
+        if not serializer.is_valid():
+            return Response({"exito": False, "errores": serializer.errors}, status=400)
+
+        proveedor_actualizado = Proveedores.modificarProveedor(proveedor, serializer.validated_data)
+        Proveedores.notificarActualizacion(usuario_sesion, proveedor_actualizado)
+        confirmacion = Proveedores.RetornaDatosYConfirmacion(True)
+        return Response({"exito": True, "mensaje": "Proveedor actualizado.", **confirmacion}, status=200)
+
+    proveedor.delete()
+    registrar_bitacora(usuario_sesion, 'ELIMINACIÓN', f"Eliminó proveedor: {proveedor.empresa}.")
+    return Response({"exito": True, "mensaje": "Proveedor eliminado."}, status=200)
+
 
 # ==========================================
-# CU07: GESTIONAR COTIZACIONES (API REST)
+# CU10: GESTIONAR PRODUCTOS (REPUESTOS)
 # ==========================================
-class CotizacionViewSet(viewsets.ModelViewSet):
-    queryset = Cotizacion.objects.all().order_by('codigo')
-    serializer_class = CotizacionSerializer
+@api_view(['GET', 'POST'])
+def productos_api(request):
+    usuario_sesion, error_auth = obtener_usuario_autenticado(request)
+    if error_auth:
+        return error_auth
 
-    def _autorizar_roles(self, request):
-        usuario_sesion, error_auth = obtener_usuario_autenticado(request)
-        if error_auth:
-            return None, error_auth
+    error_rol = exigir_roles(usuario_sesion, ['Administrador', 'Recepcionista'])
+    if error_rol:
+        return error_rol
 
-        error_rol = exigir_roles(usuario_sesion, ['Administrador', 'Recepcionista'])
-        if error_rol:
-            return None, error_rol
+    if request.method == 'GET':
+        busqueda = request.GET.get('q', '').strip()
+        incluir_inactivos = request.GET.get('incluir_inactivos', '').strip().lower() == 'true'
+        productos = Productos.SolicitaBusqueda(busqueda, incluir_inactivos)
+        serializer = ProductoSerializer(productos, many=True)
+        return Response(serializer.data, status=200)
 
-        self._usuario_sesion = usuario_sesion
-        return usuario_sesion, None
+    serializer = Productos.ValidaDatos(request.data)
+    if not serializer.is_valid():
+        return Response({"exito": False, "errores": serializer.errors}, status=400)
 
-    def list(self, request, *args, **kwargs):
-        _, error = self._autorizar_roles(request)
-        if error:
-            return error
-        return super().list(request, *args, **kwargs)
+    producto = Productos.Registra(serializer.validated_data)
+    Productos.SolicitaRegistroBitacora(usuario_sesion, 'CREACIÓN', f"Registró producto: {producto.nombre}.")
+    confirmacion = Productos.RetornaDatosYConfirmacion(True)
+    return Response({"exito": True, "mensaje": "Producto creado.", **confirmacion}, status=201)
 
-    def retrieve(self, request, *args, **kwargs):
-        _, error = self._autorizar_roles(request)
-        if error:
-            return error
-        return super().retrieve(request, *args, **kwargs)
 
-    def create(self, request, *args, **kwargs):
-        _, error = self._autorizar_roles(request)
-        if error:
-            return error
-        return super().create(request, *args, **kwargs)
+@api_view(['PUT', 'DELETE'])
+def producto_detalle_api(request, producto_id):
+    usuario_sesion, error_auth = obtener_usuario_autenticado(request)
+    if error_auth:
+        return error_auth
 
-    def update(self, request, *args, **kwargs):
-        _, error = self._autorizar_roles(request)
-        if error:
-            return error
-        return super().update(request, *args, **kwargs)
+    error_rol = exigir_roles(usuario_sesion, ['Administrador', 'Recepcionista'])
+    if error_rol:
+        return error_rol
 
-    def partial_update(self, request, *args, **kwargs):
-        _, error = self._autorizar_roles(request)
-        if error:
-            return error
-        return super().partial_update(request, *args, **kwargs)
+    try:
+        producto = Producto.objects.get(codigo=producto_id)
+    except Producto.DoesNotExist:
+        return Response({"exito": False, "error": "Producto no encontrado."}, status=404)
 
-    def destroy(self, request, *args, **kwargs):
-        _, error = self._autorizar_roles(request)
-        if error:
-            return error
-        return super().destroy(request, *args, **kwargs)
+    if request.method == 'PUT':
+        serializer = ProductoSerializer(producto, data=request.data, partial=True)
+        if not serializer.is_valid():
+            return Response({"exito": False, "errores": serializer.errors}, status=400)
 
-    def perform_create(self, serializer):
-        with transaction.atomic():
-            cotizacion = serializer.save()
-            registrar_bitacora(
-                self._usuario_sesion,
-                'CREACIÓN',
-                f"Generó cotizacion para cliente {cotizacion.id_cliente.nombre}.",
+        producto_actualizado = Productos.Modifica(producto, serializer.validated_data)
+        Productos.SolicitaRegistroBitacora(usuario_sesion, 'MODIFICACIÓN', f"Actualizó producto: {producto_actualizado.nombre}.")
+        confirmacion = Productos.RetornaDatosYConfirmacion(True)
+        return Response({"exito": True, "mensaje": "Producto actualizado.", **confirmacion}, status=200)
+
+    if (producto.estado or 'Activo') == 'Inactivo':
+        return Response({"exito": False, "error": "El producto ya está inactivo."}, status=400)
+
+    producto_actualizado = Productos.Desactiva(producto)
+    Productos.SolicitaRegistroBitacora(usuario_sesion, 'MODIFICACIÓN', f"Desactivó producto: {producto_actualizado.nombre}.")
+    confirmacion = Productos.RetornaDatosYConfirmacion(True)
+    return Response({"exito": True, "mensaje": "Producto desactivado.", **confirmacion}, status=200)
+
+
+class Cotizaciones:
+    @staticmethod
+    def SolicitaValidacion(cliente, motocicleta):
+        return _validar_cliente_motocicleta_para_cotizacion(cliente, motocicleta)
+
+    @staticmethod
+    def BuscaProducto(id_producto):
+        try:
+            return Producto.objects.get(codigo=id_producto)
+        except Producto.DoesNotExist:
+            return None
+
+    @staticmethod
+    def CreaItems(detalles):
+        items = []
+        for idx, detalle in enumerate(detalles, start=1):
+            item_data, error = _validar_detalle_cotizacion(detalle)
+            if error:
+                raise ValueError(f"Detalle {idx}: {error}")
+            items.append(item_data)
+        return items
+
+    @staticmethod
+    def Registra(cotizacion_data):
+        return Cotizacion(**cotizacion_data)
+
+    @staticmethod
+    def Modifica(cotizacion, datos):
+        for campo, valor in datos.items():
+            setattr(cotizacion, campo, valor)
+        cotizacion.save()
+        return cotizacion
+
+    @staticmethod
+    def Elimina(cotizacion_id):
+        cotizacion = Cotizacion.objects.get(codigo=cotizacion_id)
+        cotizacion.delete()
+        return True
+
+    @staticmethod
+    def BuscaCotizacion(cotizacion_id):
+        return Cotizacion.objects.filter(codigo=cotizacion_id).first()
+
+    @staticmethod
+    def RegistraBitacora(usuario, accion, descripcion):
+        registrar_bitacora(usuario, accion, descripcion)
+
+    @staticmethod
+    def RecibeConfirmacion(respuesta):
+        return respuesta
+
+    @staticmethod
+    def RecibePrecio(detalle):
+        try:
+            return Decimal(detalle.get('precio_unitario', 0))
+        except (InvalidOperation, TypeError):
+            return Decimal('0')
+
+    @staticmethod
+    def SolicitaCreacionOT(cotizacion):
+        return True
+
+
+class OrdenTrabajo:
+    @staticmethod
+    def EnviaDatos(data):
+        return data
+
+    @staticmethod
+    def ValidaCotizacionOrigen(cotizacion_id):
+        try:
+            return Cotizacion.objects.get(codigo=cotizacion_id)
+        except Cotizacion.DoesNotExist:
+            return None
+
+    @staticmethod
+    def RegistraMecanicoYPrioridad(orden, mecanico_id, prioridad):
+        orden.id_mecanico_id = mecanico_id
+        orden.prioridad = prioridad
+        orden.save(update_fields=['id_mecanico', 'prioridad'])
+        return orden
+
+    @staticmethod
+    def ModificaEstado(orden, estado):
+        if estado:
+            orden.estado = estado
+            orden.save(update_fields=['estado'])
+        return orden
+
+    @staticmethod
+    def DescuentaStock(producto, cantidad):
+        if producto and cantidad is not None:
+            producto.stock_actual = max(0, (producto.stock_actual or 0) - int(cantidad))
+            producto.save(update_fields=['stock_actual'])
+        return producto
+
+    @staticmethod
+    def SolicitaRegistroBitacora(usuario, accion, descripcion):
+        registrar_bitacora(usuario, accion, descripcion)
+
+    @staticmethod
+    def RetornaConfirmacionGeneral(valor):
+        return {"confirmacion": bool(valor)}
+
+
+class NotasTrabajo:
+    @staticmethod
+    def SolicitaValidacionAsignacion(orden):
+        return _validar_orden_para_nota(orden)
+
+    @staticmethod
+    def EnviaPayloadNota(data):
+        return data
+
+    @staticmethod
+    def RegistraNota(orden, mecanico, datos):
+        datos['id_orden_trabajo'] = orden.codigo
+        datos['id_mecanico'] = mecanico.codigo
+        return Notatrabajo.objects.create(**datos)
+
+    @staticmethod
+    def SolicitaRegistroBitacora(usuario, accion, descripcion):
+        registrar_bitacora(usuario, accion, descripcion)
+
+    @staticmethod
+    def RetornaConfirmacionGeneral(valor):
+        return {"confirmacion": bool(valor)}
+
+
+class Productos:
+    @staticmethod
+    def SolicitaBusqueda(busqueda='', incluir_inactivos=False):
+        productos = Producto.objects.all().order_by('codigo')
+        if not incluir_inactivos:
+            productos = productos.filter(estado='Activo')
+        if busqueda:
+            productos = productos.filter(
+                Q(nombre__icontains=busqueda)
+                | Q(categoria__icontains=busqueda)
+                | Q(marca__icontains=busqueda)
             )
+        return productos
+
+    @staticmethod
+    def ValidaDatos(data):
+        serializer = ProductoSerializer(data=data)
+        return serializer
+
+    @staticmethod
+    def Registra(datos):
+        payload = Productos.GeneraProductoAlmacen(datos)
+        payload['estado'] = 'Activo'
+        return Producto.objects.create(**payload)
+
+    @staticmethod
+    def Modifica(producto, datos):
+        for campo, valor in datos.items():
+            setattr(producto, campo, valor)
+        producto.save()
+        return producto
+
+    @staticmethod
+    def Desactiva(producto):
+        producto.estado = 'Inactivo'
+        producto.save(update_fields=['estado'])
+        return producto
+
+    @staticmethod
+    def SolicitaRegistroBitacora(usuario, accion, descripcion):
+        registrar_bitacora(usuario, accion, descripcion)
+
+    @staticmethod
+    def RetornaDatosYConfirmacion(valor):
+        return {"confirmacion": bool(valor)}
+
+    @staticmethod
+    def GeneraProductoAlmacen(datos):
+        payload = dict(datos)
+        payload['stock_minimo'] = max(1, int(payload.get('stock_minimo', 1) or 1))
+        payload['ubicacion_almacen'] = str(payload.get('ubicacion_almacen', '')).strip() or 'Sin ubicación asignada'
+        return payload
+
+    @staticmethod
+    def SolicitaCrearRepuesto(payload):
+        return Producto.objects.create(**payload)
+
+    @staticmethod
+    def SolicitaEditarRepuesto(producto, datos):
+        for campo, valor in datos.items():
+            setattr(producto, campo, valor)
+        producto.save()
+        return producto
+
+    @staticmethod
+    def SolicitaDesactivarRepuesto(producto):
+        producto.estado = 'Inactivo'
+        producto.save(update_fields=['estado'])
+        return producto
+
+    @staticmethod
+    def RecibeConfirmacionVisual(mensaje):
+        return mensaje
+
+
+class Inventario:
+    @staticmethod
+    def SolicitarDatosStock(alerta=''):
+        productos = Producto.objects.all().order_by('codigo')
+        if alerta == 'bajo':
+            productos = productos.filter(stock_actual__lte=F('stock_minimo'))
+        return productos
+
+    @staticmethod
+    def EvaluaAlertas(producto):
+        return (producto.stock_actual or 0) <= (producto.stock_minimo or 1)
+
+    @staticmethod
+    def SolicitaHistorial():
+        return []
+
+    @staticmethod
+    def EnviaAjustes(producto, cantidad):
+        return Inventario.RegistraAjusteManual(producto, cantidad)
+
+    @staticmethod
+    def ValidaStock(producto):
+        return Inventario.ValidarStockYAlertas(producto)
+
+    @staticmethod
+    def SolicitaRegistroBitacora(usuario, accion, descripcion):
+        registrar_bitacora(usuario, accion, descripcion)
+
+    @staticmethod
+    def RetornaDatosYConfirmacion(datos):
+        return datos
+
+    @staticmethod
+    def ValidarStockYAlertas(producto):
+        return (producto.stock_actual or 0) <= (producto.stock_minimo or 1)
+
+    @staticmethod
+    def ConsultaHistorialProductos():
+        return []
+
+    @staticmethod
+    def RegistraAjusteManual(producto, cantidad):
+        producto.stock_actual = max(0, (producto.stock_actual or 0) + int(cantidad))
+        producto.save(update_fields=['stock_actual'])
+        return producto
+
+    @staticmethod
+    def RecibeConfirmacionYDatos(datos):
+        return datos
+
+
+class Compras:
+    @staticmethod
+    def SolicitarValidacion(proveedor_id, detalles):
+        try:
+            proveedor = Proveedor.objects.get(codigo=proveedor_id)
+        except Proveedor.DoesNotExist:
+            return False
+        return proveedor is not None and isinstance(detalles, list)
+
+    @staticmethod
+    def EnviarPayloadComprasYDetalle(data):
+        return data
+
+    @staticmethod
+    def SolicitaActualizarStockYRegistrarBitacora(usuario, producto, cantidad):
+        producto.stock_actual = max(0, (producto.stock_actual or 0) + int(cantidad))
+        producto.save(update_fields=['stock_actual'])
+        registrar_bitacora(usuario, 'MODIFICACIÓN', f"Actualizó stock de producto {producto.nombre} en {cantidad} unidades.")
+        return producto
+
+    @staticmethod
+    def RetornaConfirmacionGeneral(valor):
+        return {"confirmacion": bool(valor)}
+
+    @staticmethod
+    def IniciaRegistroCompra(data):
+        return data
+
+    @staticmethod
+    def SeleccionarProveedorYProductos(data):
+        return data
+
+    @staticmethod
+    def IngresaDatos(data):
+        return data
+
+    @staticmethod
+    def RegistraCompra(compra_data):
+        return Compra.objects.create(**compra_data)
+
+    @staticmethod
+    def ActualizaStock(producto, cantidad):
+        producto.stock_actual = max(0, (producto.stock_actual or 0) + int(cantidad))
+        producto.save(update_fields=['stock_actual'])
+        return producto
+
+    @staticmethod
+    def RecibeConfirmacionVisual(mensaje):
+        return mensaje
+
+
+class Proveedores:
+    @staticmethod
+    def mostrarProveedor():
+        return Proveedor.objects.all().order_by('codigo')
+
+    @staticmethod
+    def verificarDatosProveedor(datos):
+        serializer = ProveedorSerializer(data=datos)
+        return serializer
+
+    @staticmethod
+    def validarProveedor(proveedor):
+        return proveedor is not None
+
+    @staticmethod
+    def modificarProveedor(proveedor, datos):
+        for campo, valor in datos.items():
+            setattr(proveedor, campo, valor)
+        proveedor.save()
+        return proveedor
+
+    @staticmethod
+    def notificarActualizacion(usuario, proveedor):
+        registrar_bitacora(usuario, 'MODIFICACIÓN', f"Actualizó proveedor: {proveedor.empresa}.")
+
+    @staticmethod
+    def RetornaDatosYConfirmacion(valor):
+        return {"confirmacion": bool(valor)}
+
+    @staticmethod
+    def consultarProveedor():
+        return Proveedor.objects.all().order_by('codigo')
+
+    @staticmethod
+    def actualizarProveedor(proveedor, datos):
+        for campo, valor in datos.items():
+            setattr(proveedor, campo, valor)
+        proveedor.save()
+        return proveedor
+
+    @staticmethod
+    def registrarNuevoProveedor(datos):
+        return Proveedor.objects.create(**datos)
+
+    @staticmethod
+    def RecibeConfirmacionVisual(mensaje):
+        return mensaje
 
 
 # ==========================================
-# CU13: GESTIONAR PROVEEDORES (API REST)
+# CU11: MONITOREAR INVENTARIO
 # ==========================================
-class ProveedorViewSet(viewsets.ModelViewSet):
-    queryset = Proveedor.objects.all().order_by('codigo')
-    serializer_class = ProveedorSerializer
+@api_view(['GET'])
+def inventario_api(request):
+    usuario_sesion, error_auth = obtener_usuario_autenticado(request)
+    if error_auth:
+        return error_auth
 
-    def _autorizar_admin(self, request):
-        usuario_sesion, error_auth = obtener_usuario_autenticado(request)
-        if error_auth:
-            return None, error_auth
+    error_rol = exigir_roles(usuario_sesion, ['Administrador', 'Recepcionista', 'Mecanico'])
+    if error_rol:
+        return error_rol
 
-        error_admin = exigir_admin(usuario_sesion)
-        if error_admin:
-            return None, error_admin
+    alerta = request.GET.get('alerta', '').strip().lower()
+    productos = Inventario.SolicitarDatosStock(alerta)
 
-        self._usuario_sesion = usuario_sesion
-        return usuario_sesion, None
-
-    def list(self, request, *args, **kwargs):
-        _, error = self._autorizar_admin(request)
-        if error:
-            return error
-        return super().list(request, *args, **kwargs)
-
-    def retrieve(self, request, *args, **kwargs):
-        _, error = self._autorizar_admin(request)
-        if error:
-            return error
-        return super().retrieve(request, *args, **kwargs)
-
-    def create(self, request, *args, **kwargs):
-        _, error = self._autorizar_admin(request)
-        if error:
-            return error
-        return super().create(request, *args, **kwargs)
-
-    def update(self, request, *args, **kwargs):
-        _, error = self._autorizar_admin(request)
-        if error:
-            return error
-        return super().update(request, *args, **kwargs)
-
-    def partial_update(self, request, *args, **kwargs):
-        _, error = self._autorizar_admin(request)
-        if error:
-            return error
-        return super().partial_update(request, *args, **kwargs)
-
-    def destroy(self, request, *args, **kwargs):
-        _, error = self._autorizar_admin(request)
-        if error:
-            return error
-        return super().destroy(request, *args, **kwargs)
-
-    def perform_create(self, serializer):
-        proveedor = serializer.save()
-        registrar_bitacora(
-            self._usuario_sesion,
-            'CREACIÓN',
-            f"Registró proveedor: {proveedor.empresa}.",
-        )
-
-    def perform_update(self, serializer):
-        proveedor = serializer.save()
-        registrar_bitacora(
-            self._usuario_sesion,
-            'MODIFICACIÓN',
-            f"Actualizó proveedor: {proveedor.empresa}.",
-        )
-
-    def perform_destroy(self, instance):
-        nombre_proveedor = instance.empresa
-        instance.delete()
-        registrar_bitacora(
-            self._usuario_sesion,
-            'ELIMINACIÓN',
-            f"Eliminó proveedor: {nombre_proveedor}.",
-        )
+    serializer = ProductoSerializer(productos, many=True)
+    return Response(Inventario.RetornaDatosYConfirmacion(serializer.data), status=200)
 
 
 # ==========================================
-# CU10: GESTIONAR PRODUCTOS (API REST)
+# CU12: PROCESAR COMPRAS A PROVEEDORES
 # ==========================================
-class ProductoViewSet(viewsets.ModelViewSet):
-    queryset = Producto.objects.all().order_by('codigo')
-    serializer_class = ProductoSerializer
+@api_view(['GET', 'POST'])
+def compras_api(request):
+    usuario_sesion, error_auth = obtener_usuario_autenticado(request)
+    if error_auth:
+        return error_auth
 
-    def _autorizar_admin(self, request):
-        usuario_sesion, error_auth = obtener_usuario_autenticado(request)
-        if error_auth:
-            return None, error_auth
+    error_rol = exigir_roles(usuario_sesion, ['Administrador', 'Recepcionista'])
+    if error_rol:
+        return error_rol
 
-        error_admin = exigir_admin(usuario_sesion)
-        if error_admin:
-            return None, error_admin
+    if request.method == 'GET':
+        compras = Compra.objects.select_related('id_proveedor').all().order_by('-fecha')
+        serializer = CompraSerializer(compras, many=True)
+        return Response(serializer.data, status=200)
 
-        self._usuario_sesion = usuario_sesion
-        return usuario_sesion, None
+    detalles = request.data.get('detalles', [])
+    datos_compra = Compras.EnviarPayloadComprasYDetalle(request.data)
+    serializer = CompraSerializer(data=datos_compra)
+    if not serializer.is_valid():
+        return Response({"exito": False, "errores": serializer.errors}, status=400)
 
-    def list(self, request, *args, **kwargs):
-        _, error = self._autorizar_admin(request)
-        if error:
-            return error
-        return super().list(request, *args, **kwargs)
+    if not Compras.SolicitarValidacion(serializer.validated_data.get('id_proveedor'), detalles):
+        return Response({"exito": False, "error": "Proveedor o detalles no válidos."}, status=400)
 
-    def retrieve(self, request, *args, **kwargs):
-        _, error = self._autorizar_admin(request)
-        if error:
-            return error
-        return super().retrieve(request, *args, **kwargs)
+    compra = Compras.RegistraCompra(serializer.validated_data)
+    for detalle in detalles:
+        try:
+            producto = Producto.objects.get(codigo=detalle.get('id_producto'))
+        except Producto.DoesNotExist:
+            continue
 
-    def create(self, request, *args, **kwargs):
-        _, error = self._autorizar_admin(request)
-        if error:
-            return error
-        return super().create(request, *args, **kwargs)
-
-    def update(self, request, *args, **kwargs):
-        _, error = self._autorizar_admin(request)
-        if error:
-            return error
-        return super().update(request, *args, **kwargs)
-
-    def partial_update(self, request, *args, **kwargs):
-        _, error = self._autorizar_admin(request)
-        if error:
-            return error
-        return super().partial_update(request, *args, **kwargs)
-
-    def destroy(self, request, *args, **kwargs):
-        _, error = self._autorizar_admin(request)
-        if error:
-            return error
-        return super().destroy(request, *args, **kwargs)
-
-    def perform_create(self, serializer):
-        producto = serializer.save()
-        registrar_bitacora(
-            self._usuario_sesion,
-            'CREACIÓN',
-            f"Registró producto: {producto.nombre}.",
+        item = Detallecompra.objects.create(
+            id_compra=compra,
+            id_producto=producto,
+            cantidad=detalle.get('cantidad', 0),
+            precio_compra=detalle.get('precio_compra', producto.precio_compra),
+            subtotal=detalle.get('subtotal', 0),
         )
 
-    def perform_update(self, serializer):
-        producto = serializer.save()
-        registrar_bitacora(
-            self._usuario_sesion,
-            'MODIFICACIÓN',
-            f"Actualizó producto: {producto.nombre}.",
-        )
+        Compras.SolicitaActualizarStockYRegistrarBitacora(usuario_sesion, producto, item.cantidad)
 
-    def perform_destroy(self, instance):
-        nombre_producto = instance.nombre
-        instance.delete()
-        registrar_bitacora(
-            self._usuario_sesion,
-            'ELIMINACIÓN',
-            f"Eliminó producto: {nombre_producto}.",
-        )
+    confirmacion = Compras.RetornaConfirmacionGeneral(True)
+    registrar_bitacora(usuario_sesion, 'CREACIÓN', f"Registró compra #{compra.codigo} a proveedor ID {compra.id_proveedor.codigo}.")
+    return Response({"exito": True, "mensaje": "Compra registrada y stock actualizado.", **confirmacion}, status=201)
 
 
 # ==========================================
-# CU12: GESTIONAR COMPRAS A PROVEEDORES (API REST)
+# CU07: ELABORAR COTIZACIONES
 # ==========================================
-class CompraViewSet(viewsets.ModelViewSet):
-    queryset = Compra.objects.all().order_by('codigo')
-    serializer_class = CompraSerializer
+@api_view(['GET', 'POST'])
+def cotizaciones_api(request):
+    usuario_sesion, error_auth = obtener_usuario_autenticado(request)
+    if error_auth:
+        return error_auth
 
-    def _autorizar_admin(self, request):
-        usuario_sesion, error_auth = obtener_usuario_autenticado(request)
-        if error_auth:
-            return None, error_auth
+    error_rol = exigir_roles(usuario_sesion, ['Administrador', 'Recepcionista'])
+    if error_rol:
+        return error_rol
 
-        error_admin = exigir_admin(usuario_sesion)
-        if error_admin:
-            return None, error_admin
-
-        self._usuario_sesion = usuario_sesion
-        return usuario_sesion, None
-
-    def list(self, request, *args, **kwargs):
-        _, error = self._autorizar_admin(request)
-        if error:
-            return error
-        return super().list(request, *args, **kwargs)
-
-    def retrieve(self, request, *args, **kwargs):
-        _, error = self._autorizar_admin(request)
-        if error:
-            return error
-        return super().retrieve(request, *args, **kwargs)
-
-    def create(self, request, *args, **kwargs):
-        _, error = self._autorizar_admin(request)
-        if error:
-            return error
-        return super().create(request, *args, **kwargs)
-
-    def update(self, request, *args, **kwargs):
-        _, error = self._autorizar_admin(request)
-        if error:
-            return error
-        return super().update(request, *args, **kwargs)
-
-    def partial_update(self, request, *args, **kwargs):
-        _, error = self._autorizar_admin(request)
-        if error:
-            return error
-        return super().partial_update(request, *args, **kwargs)
-
-    def destroy(self, request, *args, **kwargs):
-        _, error = self._autorizar_admin(request)
-        if error:
-            return error
-        return super().destroy(request, *args, **kwargs)
-
-    def perform_create(self, serializer):
-        with transaction.atomic():
-            compra = serializer.save()
-
-            numero_factura = compra.numero_factura or 'SIN_FACTURA'
-            registrar_bitacora(
-                self._usuario_sesion,
-                'CREACIÓN',
-                f"Registró compra al proveedor {compra.id_proveedor.empresa} con factura {numero_factura}.",
+    if request.method == 'GET':
+        query = request.GET.get('q', '').strip()
+        cotizaciones = Cotizacion.objects.select_related('id_cliente', 'id_motocicleta').all()
+        if query:
+            filtros = (
+                Q(id_cliente__nombre__icontains=query)
+                | Q(id_motocicleta__placa__icontains=query)
+                | Q(id_motocicleta__marca__icontains=query)
+                | Q(id_motocicleta__modelo__icontains=query)
+                | Q(estado__icontains=query)
             )
+            if query.isdigit():
+                filtros |= Q(codigo=int(query))
+            cotizaciones = cotizaciones.filter(filtros)
+        cotizaciones = cotizaciones.order_by('-fecha_emision')
+        serializer = CotizacionSerializer(cotizaciones, many=True)
+        return Response(serializer.data, status=200)
 
+    detalles = request.data.get('detalles', [])
+    if not isinstance(detalles, list) or len(detalles) == 0:
+        return Response({"exito": False, "error": "La cotización debe incluir al menos un item."}, status=400)
+
+    cotizacion_payload = {
+        'id_cliente': request.data.get('id_cliente'),
+        'id_motocicleta': request.data.get('id_motocicleta'),
+        'fecha_emision': request.data.get('fecha_emision') or timezone.now().date(),
+        'fecha_validez': request.data.get('fecha_validez'),
+        'subtotal': request.data.get('subtotal'),
+        'impuesto': request.data.get('impuesto'),
+        'total': request.data.get('total'),
+        'estado': request.data.get('estado', 'Pendiente'),
+    }
+
+    serializer = CotizacionSerializer(data=cotizacion_payload)
+    if not serializer.is_valid():
+        return Response({"exito": False, "errores": serializer.errors}, status=400)
+
+    cotizacion_data = serializer.validated_data
+    cliente = cotizacion_data['id_cliente']
+    motocicleta = cotizacion_data['id_motocicleta']
+    error_validacion = Cotizaciones.SolicitaValidacion(cliente, motocicleta)
+    if error_validacion:
+        return Response({"exito": False, "error": error_validacion}, status=400)
+
+    try:
+        detalles_creados = Cotizaciones.CreaItems(detalles)
+    except ValueError as exc:
+        return Response({"exito": False, "error": str(exc)}, status=400)
+
+    subtotal_items = sum((item['subtotal'] for item in detalles_creados), Decimal('0'))
+
+    if subtotal_items != cotizacion_data['subtotal']:
+        return Response(
+            {"exito": False, "error": "El subtotal de los items no coincide con el subtotal de la cotización."},
+            status=400,
+        )
+
+    total_esperado = subtotal_items + cotizacion_data['impuesto']
+    if total_esperado != cotizacion_data['total']:
+        return Response(
+            {"exito": False, "error": "El total de la cotización no coincide con el subtotal y el impuesto."},
+            status=400,
+        )
+
+    cotizacion = Cotizaciones.Registra(cotizacion_data)
+    error_fechas = cotizacion.validar_fechas()
+    if error_fechas:
+        return Response({"exito": False, "error": error_fechas}, status=400)
+
+    try:
+        cotizacion.iniciar_cotizacion(detalles_creados)
+    except ValueError as exc:
+        return Response({"exito": False, "error": str(exc)}, status=400)
+
+    cotizacion.crear_items(detalles_creados)
+    cotizacion.actualizar_estado(cotizacion.estado)
+
+    Cotizaciones.RegistraBitacora(
+        usuario_sesion,
+        'CREACIÓN',
+        f"Registró cotización #{cotizacion.codigo} para cliente ID {cotizacion.id_cliente.codigo}.",
+    )
+
+    Cotizaciones.RecibeConfirmacion(True)
+
+    return Response(
+        {
+            "exito": True,
+            "mensaje": "Cotización creada y validada correctamente.",
+            "cotizacion": CotizacionSerializer(cotizacion).data,
+            "detalles": detalles_creados,
+            "confirmacion_guardado": True,
+        },
+        status=201,
+    )
+
+
+@api_view(['PUT'])
+def cotizacion_detalle_api(request, cotizacion_id):
+    usuario_sesion, error_auth = obtener_usuario_autenticado(request)
+    if error_auth:
+        return error_auth
+
+    error_rol = exigir_roles(usuario_sesion, ['Administrador', 'Recepcionista'])
+    if error_rol:
+        return error_rol
+
+    cotizacion = Cotizaciones.BuscaCotizacion(cotizacion_id)
+    if cotizacion is None:
+        return Response({"exito": False, "error": "Cotización no encontrada."}, status=404)
+
+    serializer = CotizacionSerializer(cotizacion, data=request.data, partial=True)
+    if not serializer.is_valid():
+        return Response({"exito": False, "errores": serializer.errors}, status=400)
+
+    cotizacion_actualizada = serializer.save()
+    Cotizaciones.Modifica(cotizacion_actualizada, request.data)
+    registrar_bitacora(usuario_sesion, 'MODIFICACIÓN', f"Actualizó cotización #{cotizacion.codigo}.")
+    return Response({"exito": True, "mensaje": "Cotización actualizada."}, status=200)
+
+
+# ==========================================
+# CU08: GESTIONAR ÓRDENES DE TRABAJO
+# ==========================================
+@api_view(['GET', 'POST'])
+def ordenes_trabajo_api(request):
+    usuario_sesion, error_auth = obtener_usuario_autenticado(request)
+    if error_auth:
+        return error_auth
+
+    error_rol = exigir_roles(usuario_sesion, ['Administrador', 'Recepcionista', 'Mecanico'])
+    if error_rol:
+        return error_rol
+
+    if request.method == 'GET':
+        query = request.GET.get('q', '').strip()
+        ordenes = Ordentrabajo.objects.select_related('id_cliente', 'id_motocicleta', 'id_mecanico').all()
+        if query:
+            filtros = (
+                Q(id_cliente__nombre__icontains=query)
+                | Q(id_motocicleta__placa__icontains=query)
+                | Q(id_motocicleta__marca__icontains=query)
+                | Q(id_motocicleta__modelo__icontains=query)
+                | Q(id_mecanico__nombre__icontains=query)
+                | Q(estado__icontains=query)
+                | Q(prioridad__icontains=query)
+            )
+            if query.isdigit():
+                filtros |= Q(codigo=int(query))
+            ordenes = ordenes.filter(filtros)
+        ordenes = ordenes.order_by('-fecha_creacion')
+        serializer = OrdenTrabajoSerializer(ordenes, many=True)
+        return Response(serializer.data, status=200)
+
+    datos_orden = OrdenTrabajo.EnviaDatos(request.data)
+    serializer = OrdenTrabajoSerializer(data=datos_orden)
+    if not serializer.is_valid():
+        return Response({"exito": False, "errores": serializer.errors}, status=400)
+
+    origen_cotizacion = OrdenTrabajo.ValidaCotizacionOrigen(serializer.validated_data.get('id_cotizacion'))
+    if origen_cotizacion is None:
+        return Response({"exito": False, "error": "Cotización de origen no válida."}, status=400)
+
+    orden = Ordentrabajo.objects.create(**serializer.validated_data)
+    OrdenTrabajo.SolicitaRegistroBitacora(usuario_sesion, 'CREACIÓN', f"Registró orden de trabajo #{orden.codigo} para cliente ID {orden.id_cliente.codigo}.")
+    confirmacion = OrdenTrabajo.RetornaConfirmacionGeneral(True)
+    return Response({"exito": True, "mensaje": "Orden de trabajo creada.", **confirmacion}, status=201)
+
+
+@api_view(['PUT'])
+def orden_trabajo_detalle_api(request, orden_id):
+    usuario_sesion, error_auth = obtener_usuario_autenticado(request)
+    if error_auth:
+        return error_auth
+
+    error_rol = exigir_roles(usuario_sesion, ['Administrador', 'Recepcionista', 'Mecanico'])
+    if error_rol:
+        return error_rol
+
+    try:
+        orden = Ordentrabajo.objects.get(codigo=orden_id)
+    except Ordentrabajo.DoesNotExist:
+        return Response({"exito": False, "error": "Orden de trabajo no encontrada."}, status=404)
+
+    serializer = OrdenTrabajoSerializer(orden, data=request.data, partial=True)
+    if not serializer.is_valid():
+        return Response({"exito": False, "errores": serializer.errors}, status=400)
+
+    orden_actualizada = serializer.save()
+    OrdenTrabajo.ModificaEstado(orden_actualizada, request.data.get('estado'))
+    OrdenTrabajo.SolicitaRegistroBitacora(usuario_sesion, 'MODIFICACIÓN', f"Actualizó orden de trabajo #{orden.codigo}.")
+    confirmacion = OrdenTrabajo.RetornaConfirmacionGeneral(True)
+    return Response({"exito": True, "mensaje": "Orden de trabajo actualizada.", **confirmacion}, status=200)
+
+
+# ==========================================
+# CU09: REDACTAR NOTAS DE TRABAJO
+# ==========================================
+@api_view(['GET', 'POST'])
+def notas_trabajo_api(request):
+    usuario_sesion, error_auth = obtener_usuario_autenticado(request)
+    if error_auth:
+        return error_auth
+
+    error_rol = exigir_roles(usuario_sesion, ['Administrador', 'Mecanico'])
+    if error_rol:
+        return error_rol
+
+    if request.method == 'GET':
+        notas = Notatrabajo.objects.select_related('id_orden_trabajo', 'id_mecanico').all().order_by('-fecha_hora')
+        serializer = NotaTrabajoSerializer(notas, many=True)
+        return Response(serializer.data, status=200)
+
+    detalles = request.data.get('detalles', [])
+    if detalles is None:
+        detalles = []
+
+    data = NotasTrabajo.EnviaPayloadNota(dict(request.data))
+    data['fecha_hora'] = timezone.now()
+    data['id_mecanico'] = usuario_sesion.codigo
+
+    serializer = NotaTrabajoSerializer(data=data)
+    if not serializer.is_valid():
+        return Response({"exito": False, "errores": serializer.errors}, status=400)
+
+    orden_trabajo_id = data.get('id_orden_trabajo')
+    try:
+        orden = Ordentrabajo.objects.get(codigo=orden_trabajo_id)
+    except Ordentrabajo.DoesNotExist:
+        return Response({"exito": False, "error": "Orden de trabajo no encontrada."}, status=404)
+
+    error_validacion = NotasTrabajo.SolicitaValidacionAsignacion(orden)
+    if error_validacion:
+        return Response({"exito": False, "error": error_validacion}, status=400)
+
+    nota = NotasTrabajo.RegistraNota(orden, usuario_sesion, serializer.validated_data)
+
+    detalles_creados = []
+    total_repuestos = Decimal('0')
+    for idx, detalle in enumerate(detalles, start=1):
+        detalle_data, error_detalle = _validar_detalle_orden_trabajo(detalle)
+        if error_detalle:
+            return Response({"exito": False, "error": f"Detalle {idx}: {error_detalle}"}, status=400)
+
+        detalle_obj = Detalleordentrabajo.objects.create(
+            id_orden_trabajo=orden,
+            id_producto=detalle_data['id_producto'],
+            tipo=detalle_data['tipo'],
+            descripcion=detalle_data['descripcion'],
+            cantidad=detalle_data['cantidad'],
+            provisto_por_cliente=detalle_data['provisto_por_cliente'],
+            precio_unitario=detalle_data['precio_unitario'],
+            subtotal=detalle_data['subtotal'],
+        )
+        detalles_creados.append(detalle_obj)
+        total_repuestos += detalle_data['subtotal']
+
+    if total_repuestos > 0:
+        orden_total = Decimal(orden.total or 0)
+        orden_costo_repuestos = Decimal(orden.costo_repuestos or 0)
+        orden.total = orden_total + total_repuestos
+        orden.costo_repuestos = orden_costo_repuestos + total_repuestos
+        if (orden.estado or '').strip() == 'Abierta':
+            orden.estado = 'En progreso'
+        orden.save(update_fields=['total', 'costo_repuestos', 'estado'])
+
+    registrar_bitacora(
+        usuario_sesion,
+        'CREACIÓN',
+        f"Registró nota de trabajo #{nota.codigo} para orden ID {nota.id_orden_trabajo.codigo}.",
+    )
+
+    if detalles_creados:
+        registrar_bitacora(
+            usuario_sesion,
+            'MODIFICACIÓN',
+            f"Agregó {len(detalles_creados)} detalles de repuestos/trabajo a la orden #{orden.codigo}.",
+        )
+
+    return Response(
+        {
+            "exito": True,
+            "mensaje": "Nota de trabajo registrada correctamente.",
+            "nota": NotaTrabajoSerializer(nota).data,
+            "orden": {
+                "codigo": orden.codigo,
+                "estado": orden.estado,
+                "total": str(orden.total or '0'),
+                "costo_repuestos": str(orden.costo_repuestos or '0'),
+            },
+            "detalles_registrados": len(detalles_creados),
+        },
+        status=201,
+    )
+
+
+# ==========================================
+# CU17: GESTIONAR PERFIL DE USUARIO
+# ==========================================
 
 @api_view(['GET', 'PUT', 'PATCH'])
 def perfil_api(request):
@@ -1456,3 +2224,81 @@ def aceptar_cotizacion_api(request, cotizacion_id):
         },
         status=200,
     )
+
+# ==========================================
+# GESTIONAR PERMISOS POR M�DULO Y ROL
+# ==========================================
+@api_view(['GET', 'POST'])
+def permisos_api(request):
+    """
+    GET: Obtener todos los permisos por rol
+    POST: Guardar/actualizar los permisos
+    """
+    usuario_sesion, error_auth = obtener_usuario_autenticado(request)
+    if error_auth:
+        return error_auth
+
+    error_admin = exigir_admin(usuario_sesion)
+    if error_admin:
+        return error_admin
+
+    if request.method == 'GET':
+        try:
+            ensure_permiso_modulo_table()
+        except OperationalError as exc:
+            return Response({'exito': False, 'error': str(exc)}, status=500)
+        permisos = PermisoModulo.objects.all()
+        serializer = PermisoModuloSerializer(permisos, many=True)
+        return Response(serializer.data)
+
+    elif request.method == 'POST':
+        data = request.data
+        try:
+            ensure_permiso_modulo_table()
+        except OperationalError as exc:
+            return Response({'exito': False, 'error': str(exc)}, status=500)
+        
+        try:
+            # Limpiar permisos anteriores
+            PermisoModulo.objects.all().delete()
+            
+            # Iterar sobre cada rol
+            for rol_nombre, modulos in data.items():
+                try:
+                    rol = Rol.objects.get(nombre=rol_nombre)
+                except Rol.DoesNotExist:
+                    continue
+                
+                # Iterar sobre cada m�dulo/CU
+                for cu_nombre, item in modulos.items():
+                    if not isinstance(item, dict):
+                        continue
+                    
+                    # Extraer info del m�dulo
+                    parts = cu_nombre.split('_', 1)
+                    codigo_cu = parts[0] if len(parts) > 0 else cu_nombre
+                    nombre_modulo = parts[1] if len(parts) > 1 else cu_nombre
+                    
+                    # Iterar sobre cada acci�n
+                    # Obtener el diccionario de acciones
+                    acciones_dict = item.get('acciones', {})
+                    if not isinstance(acciones_dict, dict):
+                        continue
+                    
+                    for accion, permitido in acciones_dict.items():
+                        if accion == 'modulo':
+                            continue
+                        
+                        PermisoModulo.objects.create(
+                            id_rol=rol,
+                            codigo_cu=codigo_cu,
+                            nombre_modulo=nombre_modulo,
+                            accion=accion,
+                            permitido=bool(permitido),
+                        )
+            
+            registrar_bitacora(usuario_sesion, 'MODIFICACI�N', 'Actualiz� los permisos de m�dulos por rol.')
+            return Response({'exito': True, 'mensaje': 'Permisos guardados exitosamente.'}, status=200)
+        
+        except Exception as e:
+            return Response({'exito': False, 'error': str(e)}, status=400)

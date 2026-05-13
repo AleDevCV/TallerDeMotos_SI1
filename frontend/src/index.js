@@ -10,12 +10,20 @@ import Clientes from './Clientes';
 import Motocicletas from './Motocicletas';
 import Proveedores from './Proveedores';
 import Productos from './Productos';
-import Compras from './Compras';
 import Inventario from './Inventario';
+import Compras from './Compras';
 import Cotizaciones from './Cotizaciones';
+import OrdenesTrabajo from './OrdenesTrabajo';
+import NotasTrabajo from './NotasTrabajo';
+import Facturacion from './Facturacion';
+import HistorialMantenimiento from './HistorialMantenimiento';
+import SeguimientoClientes from './SeguimientoClientes';
+import Reportes from './Reportes';
+import DashboardAnalitico from './DashboardAnalitico';
 import Perfil from './Perfil';
 import MisMotocicletas from './MisMotocicletas';
 import InicioOperativo from './InicioOperativo';
+import AsignarPrivilegios from './AsignarPrivilegios';
 import ForgotPasswordRequest from './ForgotPasswordRequest';
 import ResetPassword from './ResetPassword';
 import ForceChangePassword from './ForceChangePassword';
@@ -38,15 +46,23 @@ root.render(
         <Route path="/usuarios" element={<Usuarios />} />
         <Route path="/roles-permisos" element={<RolesPermisos />} />
         <Route path="/clientes" element={<Clientes />} />
-        <Route path="/productos" element={<Productos />} />
-        <Route path="/proveedores" element={<Proveedores />} />
-        <Route path="/compras" element={<Compras />} />
-        <Route path="/inventario" element={<Inventario />} />
-        <Route path="/cotizaciones" element={<Cotizaciones />} />
         <Route path="/motocicletas" element={<Motocicletas />} />
+        <Route path="/proveedores" element={<Proveedores />} />
+        <Route path="/productos" element={<Productos />} />
+        <Route path="/inventario" element={<Inventario />} />
+        <Route path="/compras" element={<Compras />} />
+        <Route path="/cotizaciones" element={<Cotizaciones />} />
+        <Route path="/ordenes-trabajo" element={<OrdenesTrabajo />} />
+        <Route path="/notas-trabajo" element={<NotasTrabajo />} />
+        <Route path="/facturacion" element={<Facturacion />} />
+        <Route path="/historial-mantenimiento" element={<HistorialMantenimiento />} />
+        <Route path="/seguimiento-clientes" element={<SeguimientoClientes />} />
+        <Route path="/reportes" element={<Reportes />} />
+        <Route path="/dashboard-analitico" element={<DashboardAnalitico />} />
         <Route path="/mis-motocicletas" element={<MisMotocicletas />} />
         <Route path="/inicio" element={<InicioOperativo />} />
         <Route path="/perfil" element={<Perfil />} />
+        <Route path="/asignar-privilegios" element={<AsignarPrivilegios />} />
         <Route path="*" element={<LandingPage />} />
       </Routes>
     </BrowserRouter>

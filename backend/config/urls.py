@@ -15,61 +15,25 @@ from taller.views import (
     motocicletas_api,
     motocicleta_detalle_api,
     mis_motocicletas_api,
+    proveedores_api,
+    proveedor_detalle_api,
+    productos_api,
+    producto_detalle_api,
+    inventario_api,
+    compras_api,
+    cotizaciones_api,
+    cotizacion_detalle_api,
+    ordenes_trabajo_api,
+    orden_trabajo_detalle_api,
+    notas_trabajo_api,
     perfil_api,
     force_change_password_api,
     forgot_password_request_api,
     reset_password_confirm_api,
     aceptar_cotizacion_api,
     logout_api,
-    CotizacionViewSet,
-    ProveedorViewSet,
-    ProductoViewSet,
-    CompraViewSet,
+    permisos_api,
 )
-
-proveedores_api = ProveedorViewSet.as_view({
-    'get': 'list',
-    'post': 'create',
-})
-proveedor_detalle_api = ProveedorViewSet.as_view({
-    'get': 'retrieve',
-    'put': 'update',
-    'patch': 'partial_update',
-    'delete': 'destroy',
-})
-
-productos_api = ProductoViewSet.as_view({
-    'get': 'list',
-    'post': 'create',
-})
-producto_detalle_api = ProductoViewSet.as_view({
-    'get': 'retrieve',
-    'put': 'update',
-    'patch': 'partial_update',
-    'delete': 'destroy',
-})
-
-cotizaciones_api = CotizacionViewSet.as_view({
-    'get': 'list',
-    'post': 'create',
-})
-
-cotizacion_detalle_api = CotizacionViewSet.as_view({
-    'get': 'retrieve',
-    'put': 'update',
-    'patch': 'partial_update',
-    'delete': 'destroy',
-})
-
-compras_api = CompraViewSet.as_view({
-    'get': 'list',
-    'post': 'create',
-})
-
-compra_detalle_api = CompraViewSet.as_view({
-    'get': 'retrieve',
-    'delete': 'destroy',
-})
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -95,13 +59,17 @@ urlpatterns = [
     path('api/motocicletas/<int:motocicleta_id>/', motocicleta_detalle_api, name='api_motocicleta_detalle'),
     path('api/mis-motocicletas/', mis_motocicletas_api, name='api_mis_motocicletas'),
     path('api/proveedores/', proveedores_api, name='api_proveedores'),
-    path('api/proveedores/<int:pk>/', proveedor_detalle_api, name='api_proveedor_detalle'),
+    path('api/proveedores/<int:proveedor_id>/', proveedor_detalle_api, name='api_proveedor_detalle'),
     path('api/productos/', productos_api, name='api_productos'),
-    path('api/productos/<int:pk>/', producto_detalle_api, name='api_producto_detalle'),
+    path('api/productos/<int:producto_id>/', producto_detalle_api, name='api_producto_detalle'),
+    path('api/inventario/', inventario_api, name='api_inventario'),
     path('api/compras/', compras_api, name='api_compras'),
-    path('api/compras/<int:pk>/', compra_detalle_api, name='api_compra_detalle'),
     path('api/cotizaciones/', cotizaciones_api, name='api_cotizaciones'),
-    path('api/cotizaciones/<int:pk>/', cotizacion_detalle_api, name='api_cotizacion_detalle'),
+    path('api/cotizaciones/<int:cotizacion_id>/', cotizacion_detalle_api, name='api_cotizacion_detalle'),
+    path('api/ordenes-trabajo/', ordenes_trabajo_api, name='api_ordenes_trabajo'),
+    path('api/ordenes-trabajo/<int:orden_id>/', orden_trabajo_detalle_api, name='api_orden_trabajo_detalle'),
+    path('api/notas-trabajo/', notas_trabajo_api, name='api_notas_trabajo'),
     path('api/perfil/', perfil_api, name='api_perfil'),
     path('api/cotizaciones/<int:cotizacion_id>/aceptar/', aceptar_cotizacion_api, name='api_cotizacion_aceptar'),
+    path('api/permisos/', permisos_api, name='api_permisos'),
 ]

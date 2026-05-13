@@ -3,9 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import './Login.css'; // Reutilizamos tu fondo oscuro
 import { logoutUniversal } from './auth';
 import { formatServerDateToLaPaz, repairText } from './textNormalization';
+import AdminMenu from './AdminMenu';
 import { API_BASE_URL } from './config';
-
-const API = `${API_BASE_URL}/api`;
 
 const Bitacora = () => {
   const [registros, setRegistros] = useState([]);
@@ -36,7 +35,7 @@ const Bitacora = () => {
     if (f.accion) params.append('accion', f.accion);
 
     const query = params.toString();
-    const url = query ? `${API}/bitacora/?${query}` : `${API}/bitacora/`;
+    const url = query ? `${API_BASE_URL}/api/bitacora/?${query}` : `${API_BASE_URL}/api/bitacora/`;
 
     const response = await fetch(url, {
       headers: {
@@ -63,7 +62,7 @@ const Bitacora = () => {
     if (filtros.accion) params.append('accion', filtros.accion);
     params.append('export', 'csv');
 
-    const response = await fetch(`${API}/bitacora/?${params.toString()}`, {
+    const response = await fetch(`${API_BASE_URL}/api/bitacora/?${params.toString()}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
 
@@ -83,70 +82,38 @@ const Bitacora = () => {
     window.URL.revokeObjectURL(url);
   };
 
-const cerrarSesion = async () => {
+  const cerrarSesion = async () => {
     await logoutUniversal();
-  navigate('/login');
+    navigate('/login');
   };
 
   return (
-    <div style={{ padding: '40px', backgroundColor: '#121212', minHeight: '100vh', color: 'white' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h2 style={{ color: '#ff6600' }}>Bitácora de Auditoría (CU20)</h2>
-        <div>
-          <span style={{ marginRight: '20px' }}>👤 {repairText(usuarioLocal?.nombre)} ({repairText(usuarioLocal?.rol)})</span>
-          {/* NUEVO BOTÓN DE NAVEGACIÓN */}
+    <div className="app-container">
+      <div className="top-panel">
+        <div className="page-title">
+          <h2>Bitácora de Auditoría (CU20)</h2>
+          <div className="page-subtitle">Admin Principal (Administrador)</div>
+        </div>
+        <div className="user-actions">
+          <span>👤 {repairText(usuarioLocal?.nombre)} ({repairText(usuarioLocal?.rol)})</span>
+          <button onClick={() => navigate('/perfil')} className="btn-primary">Mi Perfil</button>
           {usuarioLocal?.rol === 'Administrador' && (
-            <button onClick={() => navigate('/usuarios')} style={{ marginRight: '10px', padding: '8px 16px', backgroundColor: '#ff6600', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>
-              Gestión de Usuarios
-            </button>
+            <button onClick={() => navigate('/asignar-privilegios')} className="btn-primary">Asignar Privilegios</button>
           )}
-          {usuarioLocal?.rol === 'Administrador' && (
-            <button onClick={() => navigate('/roles-permisos')} style={{ marginRight: '10px', padding: '8px 16px', backgroundColor: '#ff6600', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>
-              Roles y Permisos
-            </button>
-          )}
-          {(usuarioLocal?.rol === 'Administrador' || usuarioLocal?.rol === 'Recepcionista') && (
-            <button onClick={() => navigate('/clientes')} style={{ marginRight: '10px', padding: '8px 16px', backgroundColor: '#ff6600', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>
-              Clientes
-            </button>
-          )}
-          {(usuarioLocal?.rol === 'Administrador' || usuarioLocal?.rol === 'Recepcionista') && (
-            <button onClick={() => navigate('/motocicletas')} style={{ marginRight: '10px', padding: '8px 16px', backgroundColor: '#ff6600', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>
-              Motocicletas
-            </button>
-          )}
-          {(usuarioLocal?.rol === 'Administrador' || usuarioLocal?.rol === 'Recepcionista') && (
-            <button onClick={() => navigate('/cotizaciones')} style={{ marginRight: '10px', padding: '8px 16px', backgroundColor: '#ff6600', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>
-              Cotizaciones
-            </button>
-          )}
-          {usuarioLocal?.rol === 'Administrador' && (
-            <button onClick={() => navigate('/proveedores')} style={{ marginRight: '10px', padding: '8px 16px', backgroundColor: '#ff6600', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>
-              Proveedores
-            </button>
-          )}
-          {usuarioLocal?.rol === 'Administrador' && (
-            <button onClick={() => navigate('/productos')} style={{ marginRight: '10px', padding: '8px 16px', backgroundColor: '#ff6600', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>
-              Productos
-            </button>
-          )}
-          {usuarioLocal?.rol === 'Administrador' && (
-            <button onClick={() => navigate('/compras')} style={{ marginRight: '10px', padding: '8px 16px', backgroundColor: '#ff6600', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>
-              Compras
-            </button>
-          )}
-          {usuarioLocal?.rol === 'Administrador' && (
-            <button onClick={() => navigate('/inventario')} style={{ marginRight: '10px', padding: '8px 16px', backgroundColor: '#ff6600', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>
-              Inventario
-            </button>
-          )}
-          <button onClick={() => navigate('/perfil')} style={{ marginRight: '10px', padding: '8px 16px', backgroundColor: '#ff6600', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>
-            Mi Perfil
-          </button>
+          <button onClick={cerrarSesion} className="btn-secondary">Cerrar Sesión</button>
+        </div>
+      </div>
 
-          <button onClick={cerrarSesion} style={{ padding: '8px 16px', backgroundColor: '#333', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>
-            Cerrar Sesión
-          </button>
+      <AdminMenu />
+
+      <div className="section-card" style={{ padding: '24px', marginTop: '20px' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '20px' }}>
+          <button onClick={() => navigate('/usuarios')} className="btn-primary">Gestión de Usuarios</button>
+          <button onClick={() => navigate('/roles-permisos')} className="btn-primary">Roles y Permisos</button>
+          <button onClick={() => navigate('/clientes')} className="btn-primary">Clientes</button>
+          <button onClick={() => navigate('/motocicletas')} className="btn-primary">Motocicletas</button>
+          <button onClick={() => navigate('/perfil')} className="btn-primary">Mi Perfil</button>
+          <button onClick={cerrarSesion} className="btn-secondary">Cerrar Sesión</button>
         </div>
       </div>
 

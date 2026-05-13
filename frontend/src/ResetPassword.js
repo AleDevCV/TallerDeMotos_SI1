@@ -4,8 +4,6 @@ import './Login.css';
 import { PASSWORD_POLICY_MESSAGE, validateStrongPassword } from './passwordPolicy';
 import { API_BASE_URL } from './config';
 
-const API = `${API_BASE_URL}/api`;
-
 const ResetPassword = () => {
   const navigate = useNavigate();
   const token = useMemo(() => new URLSearchParams(window.location.search).get('token') || '', []);
@@ -38,7 +36,7 @@ const ResetPassword = () => {
 
     setCargando(true);
     try {
-      const res = await fetch(`${API}/password/reset/`, {
+      const res = await fetch(`${API_BASE_URL}/api/password/reset/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

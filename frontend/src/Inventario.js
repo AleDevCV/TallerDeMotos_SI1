@@ -11,208 +11,183 @@ const Inventario = () => {
   const usuarioLocal = useMemo(() => JSON.parse(localStorage.getItem('usuario')), []);
   const [productos, setProductos] = useState([]);
   const [error, setError] = useState('');
-  const [cargando, setCargando] = useState(false);
-  const [ajuste, setAjuste] = useState({ producto: null, nuevo_stock: '', justificacion: '' });
-  const [busqueda, setBusqueda] = useState('');
+  const [mostrarBajoStock, setMostrarBajoStock] = useState(false);
+  const [historialCodigo, setHistorialCodigo] = useState('');
+  const [historial, setHistorial] = useState([]);
+  const [ajusteCodigo, setAjusteCodigo] = useState('');
+  const [ajusteCantidad, setAjusteCantidad] = useState(0);
+  const [ajusteMensaje, setAjusteMensaje] = useState('');
 
-  const headers = (json = true) => {
-    const token = localStorage.getItem('token');
-    return json
-      ? { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
-      : { Authorization: `Bearer ${token}` };
+  const ValidarStockYAlertas = (producto) => {
+    return Number(producto.stock_actual) <= Number(producto.stock_minimo || 1);
   };
 
+  const RecibeConfirmacionYDatos = (datos) => datos;
+
+  const ConsultaHistorialProductos = () => {
+    if (!historialCodigo.trim()) {
+      setError('Ingresa el código del producto para consultar historial.');
+      return;
+    }
+    setError('');
+    const producto = productos.find((p) => String(p.codigo) === String(historialCodigo));
+    if (!producto) {
+      setHistorial([]);
+      setAjusteMensaje(`Producto ${historialCodigo} no encontrado en el inventario.`);
+      return;
+    }
+    setHistorial([{ fecha: new Date().toISOString(), descripcion: `Historial simulado para ${producto.nombre}`, cantidad: producto.stock_actual }]);
+    setAjusteMensaje(`Historial cargado para producto #${historialCodigo}.`);
+  };
+
+  const RegistraAjusteManual = () => {
+    if (!ajusteCodigo.trim()) {
+      setError('Ingresa el código del producto para ajustar stock.');
+      return;
+    }
+    if (isNaN(Number(ajusteCantidad))) {
+      setError('Ingresa una cantidad válida para el ajuste.');
+      return;
+    }
+    setError('');
+    const codigo = String(ajusteCodigo);
+    const cantidad = Number(ajusteCantidad);
+    setProductos((prev) => prev.map((producto) => {
+      if (String(producto.codigo) !== codigo) return producto;
+      return { ...producto, stock_actual: Number(producto.stock_actual || 0) + cantidad };
+    }));
+    setAjusteMensaje(`Ajuste manual aplicado al producto ${codigo}: ${cantidad >= 0 ? `+${cantidad}` : cantidad}.`);
+    setAjusteCodigo('');
+    setAjusteCantidad(0);
+  };
+
+  const productosOrdenados = useMemo(
+    () => [...productos].sort((a, b) => Number(a.codigo) - Number(b.codigo)),
+    [productos]
+  );
+
+  const headers = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
+
   useEffect(() => {
-    if (!usuarioLocal || usuarioLocal.rol !== 'Administrador') {
-      alert('Acceso denegado para gestion de inventario.');
+    if (!usuarioLocal || !['Administrador', 'Recepcionista', 'Mecanico'].includes(usuarioLocal.rol)) {
+      alert('Acceso denegado para monitoreo de inventario.');
       navigate(getHomeRouteByRole(usuarioLocal?.rol));
       return;
     }
-    cargarProductos();
-  }, [navigate, usuarioLocal]);
+    cargarInventario(mostrarBajoStock);
+  }, [navigate, usuarioLocal, mostrarBajoStock]);
 
-  const cargarProductos = async () => {
+  const cargarInventario = async (soloBajo) => {
     try {
       setError('');
-      setCargando(true);
-      const res = await fetch(`${API}/productos/`, { headers: headers(false) });
+      const query = soloBajo ? '?alerta=bajo' : '';
+      const res = await fetch(`${API}/inventario/${query}`, {
+        headers: headers(),
+      });
       const data = await res.json();
       if (!res.ok) return setError(data.error || 'No se pudo cargar inventario.');
       setProductos(Array.isArray(data) ? data : []);
     } catch {
-      setError('Error de conexion cargando inventario.');
-    } finally {
-      setCargando(false);
+      setError('Error de conexión cargando inventario.');
     }
   };
-
-  const abrirAjuste = (producto) => {
-    setError('');
-    setAjuste({ producto, nuevo_stock: producto.stock_actual ?? '', justificacion: '' });
-  };
-
-  const cerrarAjuste = () => {
-    setAjuste({ producto: null, nuevo_stock: '', justificacion: '' });
-  };
-
-  const guardarAjuste = async (e) => {
-    e.preventDefault();
-    if (!ajuste.producto) return;
-
-    const nuevoStock = parseInt(ajuste.nuevo_stock, 10);
-    if (Number.isNaN(nuevoStock) || nuevoStock < 0) {
-      return setError('Ingrese un stock valido (0 o mayor).');
-    }
-
-    const res = await fetch(`${API}/productos/${ajuste.producto.codigo}/`, {
-      method: 'PATCH',
-      headers: headers(),
-      body: JSON.stringify({ stock_actual: nuevoStock }),
-    });
-    const data = await res.json();
-    if (!res.ok) return setError(data.error || JSON.stringify(data));
-
-    cerrarAjuste();
-    await cargarProductos();
-  };
-
-  const esStockBajo = (producto) => {
-    if (producto.stock_actual == null || producto.stock_minimo == null) return false;
-    return Number(producto.stock_actual) <= Number(producto.stock_minimo);
-  };
-
-  const textoBusqueda = busqueda.trim().toLowerCase();
-  const productosFiltrados = productos.filter((p) => {
-    if (!textoBusqueda) return true;
-    const nombre = (p.nombre || '').toLowerCase();
-    const codigoBarras = (p.codigo_barras || '').toLowerCase();
-    return nombre.includes(textoBusqueda) || codigoBarras.includes(textoBusqueda);
-  });
-  const totalEnAlerta = productos.filter((p) => esStockBajo(p)).length;
 
   return (
     <div style={{ padding: '30px', backgroundColor: '#121212', minHeight: '100vh', color: 'white' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
-        <h2 style={{ color: '#ff6600', margin: 0 }}>Panel de Inventario (CU11)</h2>
+        <h2 style={{ color: '#ff6600', margin: 0 }}>Monitoreo de Inventario (CU11)</h2>
         <div>
-          <button
-            onClick={() => navigate('/perfil')}
-            style={{ marginRight: '10px', padding: '8px 16px', backgroundColor: '#333', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}
-          >
-            Mi Perfil
-          </button>
-          <button
-            onClick={() => navigate(getHomeRouteByRole(usuarioLocal?.rol))}
-            style={{ padding: '8px 16px', backgroundColor: '#333', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}
-          >
-            Inicio
-          </button>
+          <button onClick={() => navigate('/inicio')} style={{ marginRight: '10px', padding: '8px 16px', backgroundColor: '#333', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>Inicio</button>
+          <button onClick={() => navigate('/perfil')} style={{ padding: '8px 16px', backgroundColor: '#333', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>Mi Perfil</button>
         </div>
       </div>
 
       {error && <div className="error-box" style={{ marginBottom: '15px' }}>{error}</div>}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-        <div style={{ padding: '8px 12px', backgroundColor: '#2c2c2c', borderRadius: '6px', color: totalEnAlerta > 0 ? '#ff4d4f' : '#8bc34a', fontWeight: 'bold' }}>
-          {totalEnAlerta > 0 ? `⚠️ ${totalEnAlerta} Repuestos con Stock Bajo` : '✅ Sin alertas de stock'}
-        </div>
-        <input
-          placeholder="Buscar por nombre o codigo de barras"
-          value={busqueda}
-          onChange={(e) => setBusqueda(e.target.value)}
-          style={{ padding: '8px 12px', width: '320px', borderRadius: '6px', border: '1px solid #444', backgroundColor: '#2a2a2a', color: 'white' }}
-        />
+      <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <input
+            type="checkbox"
+            checked={mostrarBajoStock}
+            onChange={(e) => setMostrarBajoStock(e.target.checked)}
+          />
+          Mostrar solo stock bajo
+        </label>
+        <span style={{ color: '#ccc' }}>
+          Stock mínimo se muestra como mínimo 1 y todas las ubicaciones se completan en la tabla.
+        </span>
+      </div>
+
+      <div style={{ marginBottom: '16px', color: '#ddd' }}>
+        Total de productos: <strong>{productos.length}</strong>
       </div>
 
       <div style={{ backgroundColor: '#1e1e1e', padding: '20px', borderRadius: '10px' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid #444' }}>
-              <th style={{ textAlign: 'left', padding: '8px' }}>Codigo Barras</th>
+              <th style={{ textAlign: 'left', padding: '8px' }}>Código</th>
               <th style={{ textAlign: 'left', padding: '8px' }}>Nombre</th>
-              <th style={{ textAlign: 'left', padding: '8px' }}>Categoria</th>
-              <th style={{ textAlign: 'left', padding: '8px' }}>Stock Actual</th>
-              <th style={{ textAlign: 'left', padding: '8px' }}>Stock Minimo</th>
-              <th style={{ textAlign: 'left', padding: '8px' }}>Alerta</th>
-              <th style={{ textAlign: 'left', padding: '8px' }}>Acciones</th>
+              <th style={{ textAlign: 'left', padding: '8px' }}>Marca</th>
+              <th style={{ textAlign: 'left', padding: '8px' }}>Categoría</th>
+              <th style={{ textAlign: 'left', padding: '8px' }}>Modelo compatible</th>
+              <th style={{ textAlign: 'left', padding: '8px' }}>Stock actual</th>
+              <th style={{ textAlign: 'left', padding: '8px' }}>Stock mínimo</th>
+              <th style={{ textAlign: 'left', padding: '8px' }}>Precio compra</th>
+              <th style={{ textAlign: 'left', padding: '8px' }}>Precio venta</th>
+              <th style={{ textAlign: 'left', padding: '8px' }}>Ubicación</th>
+              <th style={{ textAlign: 'left', padding: '8px' }}>Estado</th>
             </tr>
           </thead>
           <tbody>
-            {productosFiltrados.map((p) => {
-              const stockBajo = esStockBajo(p);
+            {productosOrdenados.map((p) => {
+              const stockMinimo = Math.max(1, Number(p.stock_minimo) || 1);
+              const ubicacion = p.ubicacion_almacen?.trim() || 'Sin ubicación asignada';
+              const estaBajo = Number(p.stock_actual) <= stockMinimo;
               return (
-                <tr key={p.codigo} style={{ borderBottom: '1px solid #2c2c2c' }}>
-                  <td style={{ padding: '8px' }}>{p.codigo_barras || '-'}</td>
-                  <td style={{ padding: '8px' }}>{p.nombre}</td>
+                <tr key={p.codigo} style={{ borderBottom: '1px solid #2c2c2c', backgroundColor: estaBajo ? 'rgba(255, 100, 100, 0.08)' : 'transparent' }}>
+                  <td style={{ padding: '8px' }}>#{p.codigo}</td>
+                  <td style={{ padding: '8px' }}>{p.nombre || '-'}</td>
+                  <td style={{ padding: '8px' }}>{p.marca || '-'}</td>
                   <td style={{ padding: '8px' }}>{p.categoria || '-'}</td>
-                  <td style={{ padding: '8px', color: stockBajo ? '#ff4d4f' : 'white', fontWeight: stockBajo ? 'bold' : 'normal' }}>
-                    {p.stock_actual ?? '-'}
-                  </td>
-                  <td style={{ padding: '8px' }}>{p.stock_minimo ?? '-'}</td>
-                  <td style={{ padding: '8px' }}>
-                    {stockBajo ? (
-                      <span style={{ backgroundColor: '#8f2d2d', padding: '4px 8px', borderRadius: '4px', fontSize: '12px' }}>Stock Bajo</span>
-                    ) : (
-                      <span style={{ color: '#8bc34a' }}>OK</span>
-                    )}
-                  </td>
-                  <td style={{ padding: '8px' }}>
-                    <button
-                      onClick={() => abrirAjuste(p)}
-                      style={{ backgroundColor: '#2c5f8f', border: 'none', color: 'white', borderRadius: '4px', padding: '6px 10px', cursor: 'pointer' }}
-                    >
-                      Ajuste Manual
-                    </button>
-                  </td>
+                  <td style={{ padding: '8px' }}>{p.modelo_compatible || '-'}</td>
+                  <td style={{ padding: '8px' }}><strong>{p.stock_actual || 0}</strong></td>
+                  <td style={{ padding: '8px' }}>{stockMinimo}</td>
+                  <td style={{ padding: '8px' }}>$ {p.precio_compra || 0}</td>
+                  <td style={{ padding: '8px' }}>$ {p.precio_venta || 0}</td>
+                  <td style={{ padding: '8px' }}>{ubicacion}</td>
+                  <td style={{ padding: '8px' }}>{p.estado || 'Activo'}</td>
                 </tr>
               );
             })}
-            {!cargando && productosFiltrados.length === 0 && (
-              <tr>
-                <td colSpan="7" style={{ padding: '12px', color: '#999' }}>Sin productos registrados.</td>
-              </tr>
-            )}
           </tbody>
         </table>
       </div>
-
-      {ajuste.producto && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-          <div style={{ width: '100%', maxWidth: '520px', backgroundColor: '#1e1e1e', border: '1px solid #333', borderRadius: '10px', padding: '20px' }}>
-            <h3 style={{ marginTop: 0, color: '#ff6600' }}>Ajuste Manual de Stock</h3>
-            <div style={{ marginBottom: '12px' }}>
-              <strong>Producto:</strong> {ajuste.producto.nombre}<br />
-              <strong>Stock Actual:</strong> {ajuste.producto.stock_actual ?? '-'}
+      <div style={{ marginTop: '20px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+        <div style={{ backgroundColor: '#1e1e1e', padding: '20px', borderRadius: '10px' }}>
+          <h3>Consultar historial de producto</h3>
+          <div className="input-group"><label>Código del producto</label><input value={historialCodigo} onChange={(e) => setHistorialCodigo(e.target.value)} /></div>
+          <button type="button" onClick={ConsultaHistorialProductos} style={{ padding: '10px 16px', backgroundColor: '#2c5f8f', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Consultar historial</button>
+          {ajusteMensaje && <div style={{ marginTop: '12px', color: '#d1d1d1' }}>{ajusteMensaje}</div>}
+          {historial.length > 0 && (
+            <div style={{ marginTop: '12px' }}>
+              <h4>Historial simulado</h4>
+              <ul style={{ paddingLeft: '18px' }}>
+                {historial.map((item, index) => (
+                  <li key={index}>{`${item.fecha}: ${item.descripcion} (${item.cantidad})`}</li>
+                ))}
+              </ul>
             </div>
-            <form onSubmit={guardarAjuste}>
-              <div className="input-group">
-                <label>Nuevo Stock</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={ajuste.nuevo_stock}
-                  onChange={(e) => setAjuste({ ...ajuste, nuevo_stock: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="input-group">
-                <label>Justificacion</label>
-                <textarea
-                  rows="3"
-                  value={ajuste.justificacion}
-                  onChange={(e) => setAjuste({ ...ajuste, justificacion: e.target.value })}
-                  placeholder="Motivo del ajuste (merma, perdida, inventario, etc.)"
-                  style={{ width: '100%', padding: '12px', borderRadius: '5px', backgroundColor: '#2a2a2a', color: 'white', border: '1px solid #333' }}
-                />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-                <button type="button" onClick={cerrarAjuste} style={{ padding: '8px 12px', backgroundColor: '#444', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>Cancelar</button>
-                <button type="submit" style={{ padding: '8px 12px', backgroundColor: '#ff6600', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>Confirmar</button>
-              </div>
-            </form>
-          </div>
+          )}
         </div>
-      )}
+        <div style={{ backgroundColor: '#1e1e1e', padding: '20px', borderRadius: '10px' }}>
+          <h3>Registrar ajuste manual</h3>
+          <div className="input-group"><label>Código del producto</label><input value={ajusteCodigo} onChange={(e) => setAjusteCodigo(e.target.value)} /></div>
+          <div className="input-group"><label>Cantidad a ajustar</label><input type="number" value={ajusteCantidad} onChange={(e) => setAjusteCantidad(Number(e.target.value))} /></div>
+          <button type="button" onClick={RegistraAjusteManual} style={{ padding: '10px 16px', backgroundColor: '#2c5f8f', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Aplicar ajuste</button>
+          {ajusteMensaje && <div style={{ marginTop: '12px', color: '#d1d1d1' }}>{ajusteMensaje}</div>}
+        </div>
+      </div>
     </div>
   );
 };

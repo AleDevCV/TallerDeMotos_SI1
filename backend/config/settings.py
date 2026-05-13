@@ -1,4 +1,5 @@
 import os
+from urllib.parse import urlparse
 """
 Django settings for config project.
 
@@ -34,13 +35,30 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-dev-key-change
 DEBUG = get_bool_env('DJANGO_DEBUG', True)
 
 WEBSITE_HOSTNAME = os.environ.get('WEBSITE_HOSTNAME', 'localhost').strip()
-ALLOWED_HOSTS = ['*']
-if WEBSITE_HOSTNAME != 'localhost':
-    ALLOWED_HOSTS.append('localhost')
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000').strip()
 
-CSRF_TRUSTED_ORIGINS = [f"https://{WEBSITE_HOSTNAME}"]
+def build_origin(url):
+    parsed = urlparse(url)
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    return ''
+
+ALLOWED_HOSTS = [host.strip() for host in os.environ.get('ALLOWED_HOSTS', '').split(',') if host.strip()]
+if not ALLOWED_HOSTS:
+    if WEBSITE_HOSTNAME == 'localhost':
+        ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]']
+    else:
+        ALLOWED_HOSTS = [WEBSITE_HOSTNAME]
+
+CSRF_TRUSTED_ORIGINS = []
+frontend_origin = build_origin(FRONTEND_URL)
+if frontend_origin:
+    CSRF_TRUSTED_ORIGINS.append(frontend_origin)
+
 if WEBSITE_HOSTNAME == 'localhost':
-    CSRF_TRUSTED_ORIGINS.append('http://localhost')
+    CSRF_TRUSTED_ORIGINS.extend(['http://localhost', 'http://127.0.0.1'])
+else:
+    CSRF_TRUSTED_ORIGINS.append(f"https://{WEBSITE_HOSTNAME}")
 
 TOKEN_MAX_AGE_SECONDS = int(os.environ.get('TOKEN_MAX_AGE_SECONDS', '3600'))
 CLIENT_TEMP_PASSWORD = os.environ.get('CLIENT_TEMP_PASSWORD', 'zaq12wsx')
@@ -48,7 +66,7 @@ PASSWORD_RESET_TOKEN_MAX_AGE_SECONDS = int(os.environ.get('PASSWORD_RESET_TOKEN_
 PASSWORD_RESET_LIMIT_PER_IP = int(os.environ.get('PASSWORD_RESET_LIMIT_PER_IP', '20'))
 PASSWORD_RESET_LIMIT_PER_EMAIL = int(os.environ.get('PASSWORD_RESET_LIMIT_PER_EMAIL', '5'))
 PASSWORD_RESET_WINDOW_SECONDS = int(os.environ.get('PASSWORD_RESET_WINDOW_SECONDS', '3600'))
-FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:3000')
+FRONTEND_URL = FRONTEND_URL
 MAIL_MODE = os.environ.get('MAIL_MODE', 'offline').strip().lower()
 PASSWORD_RESET_LOG_TO_CONSOLE = get_bool_env('PASSWORD_RESET_LOG_TO_CONSOLE', True)
 EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT_SECONDS', '15'))

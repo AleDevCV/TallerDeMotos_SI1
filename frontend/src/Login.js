@@ -6,8 +6,6 @@ import { getHomeRouteByRole } from './navigation';
 import { repairText } from './textNormalization';
 import { API_BASE_URL } from './config';
 
-const API = `${API_BASE_URL}/api`;
-
 const Login = () => {
   // Estados para guardar lo que escribe el usuario
   const [email, setEmail] = useState('');
@@ -27,7 +25,7 @@ const Login = () => {
 
     try {
       // Hacemos la petición POST a nuestro servidor Django (Puerto 8000)
-      const respuesta = await fetch(`${API}/login/`, {
+      const respuesta = await fetch(`${API_BASE_URL}/api/login/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

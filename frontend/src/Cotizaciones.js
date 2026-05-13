@@ -9,621 +9,363 @@ const API = `${API_BASE_URL}/api`;
 const Cotizaciones = () => {
   const navigate = useNavigate();
   const usuarioLocal = useMemo(() => JSON.parse(localStorage.getItem('usuario')), []);
-  const [cotizaciones, setCotizaciones] = useState([]);
   const [clientes, setClientes] = useState([]);
-  const [motos, setMotos] = useState([]);
-  const [productos, setProductos] = useState([]);
+  const [motocicletas, setMotocicletas] = useState([]);
+  const [cotizaciones, setCotizaciones] = useState([]);
   const [error, setError] = useState('');
-  const [cargando, setCargando] = useState(false);
-  const [mostrarNuevo, setMostrarNuevo] = useState(false);
-  const [detalleSeleccion, setDetalleSeleccion] = useState(null);
-  const [busqueda, setBusqueda] = useState('');
-  const [form, setForm] = useState({
+  const [nuevo, setNuevo] = useState({
     id_cliente: '',
     id_motocicleta: '',
     fecha_emision: '',
-    dias_validez: '7',
+    fecha_validez: '',
+    subtotal: 0,
+    impuesto: 0,
+    total: 0,
+    estado: 'Pendiente',
+    detalles: [{ tipo: '', descripcion: '', cantidad: 1, precio_unitario: 0, subtotal: 0 }],
   });
-  const [detalles, setDetalles] = useState([]);
+  const [busqueda, setBusqueda] = useState('');
+  const [cotizacionEdicion, setCotizacionEdicion] = useState(null);
+  const [editCotizacion, setEditCotizacion] = useState({
+    id_cliente: '',
+    id_motocicleta: '',
+    fecha_emision: '',
+    fecha_validez: '',
+    impuesto: 0,
+    estado: 'Pendiente',
+  });
 
-  const headers = (json = true) => {
-    const token = localStorage.getItem('token');
-    return json
-      ? { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
-      : { Authorization: `Bearer ${token}` };
+  const cotizacionesOrdenadas = useMemo(
+    () => [...cotizaciones].sort((a, b) => Number(a.codigo) - Number(b.codigo)),
+    [cotizaciones]
+  );
+
+  const IniciarNuevaCotizacion = () => {
+    setNuevo({
+      id_cliente: '',
+      id_motocicleta: '',
+      fecha_emision: '',
+      fecha_validez: '',
+      subtotal: 0,
+      impuesto: 0,
+      total: 0,
+      estado: 'Pendiente',
+      detalles: [{ tipo: '', descripcion: '', cantidad: 1, precio_unitario: 0, subtotal: 0 }],
+    });
   };
 
-  const hoyIso = () => new Date().toISOString().slice(0, 10);
-
-  const sumarDias = (fechaIso, dias) => {
-    if (!fechaIso) return '';
-    const base = new Date(`${fechaIso}T00:00:00`);
-    base.setDate(base.getDate() + dias);
-    return base.toISOString().slice(0, 10);
+  const SeleccionaCliente = (clienteId) => {
+    setNuevo({ ...nuevo, id_cliente: Number(clienteId) });
   };
+
+  const AgregaItemsACotizacion = () => {
+    agregarLinea();
+  };
+
+  const GuardaLaCotizacion = async (e) => {
+    await crearCotizacion(e);
+  };
+
+  const SolicitaModificacion = () => {
+    setError('');
+  };
+
+  const Elimina = (index) => {
+    eliminarLinea(index);
+  };
+
+  const SeleccionaBuscar = () => {
+    cargarCotizaciones();
+  };
+
+  const RecibeConfirmacion = (respuesta) => {
+    return respuesta;
+  };
+
+  const GenerarOT = async (cotizacionId) => {
+    await aceptarCotizacion(cotizacionId);
+  };
+
+  const BuscarCotizaciones = async () => {
+    setError('');
+    await cargarCotizaciones(busqueda);
+  };
+
+  const abrirEdicionCotizacion = (cotizacion) => {
+    setCotizacionEdicion(cotizacion);
+    setEditCotizacion({
+      id_cliente: cotizacion.id_cliente || '',
+      id_motocicleta: cotizacion.id_motocicleta || '',
+      fecha_emision: cotizacion.fecha_emision || '',
+      fecha_validez: cotizacion.fecha_validez || '',
+      impuesto: cotizacion.impuesto || 0,
+      estado: cotizacion.estado || 'Pendiente',
+    });
+  };
+
+  const guardarEdicionCotizacion = async (e) => {
+    e.preventDefault();
+    if (!cotizacionEdicion) return;
+    setError('');
+    const payload = {
+      id_cliente: Number(editCotizacion.id_cliente),
+      id_motocicleta: Number(editCotizacion.id_motocicleta),
+      fecha_emision: editCotizacion.fecha_emision,
+      fecha_validez: editCotizacion.fecha_validez,
+      impuesto: Number(editCotizacion.impuesto || 0),
+      estado: editCotizacion.estado,
+    };
+
+    try {
+      const res = await fetch(`${API}/cotizaciones/${cotizacionEdicion.codigo}/`, {
+        method: 'PUT',
+        headers: headers(),
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || JSON.stringify(data.errores || {}) || 'No se pudo actualizar la cotización.');
+        return;
+      }
+      setCotizacionEdicion(null);
+      await cargarCotizaciones(busqueda);
+    } catch (err) {
+      console.error('Error guardando cotización:', err);
+      setError('Error de conexión al guardar la cotización.');
+    }
+  };
+
+  const eliminarCotizacion = async (cotizacion) => {
+    if (!window.confirm(`¿Eliminar cotización #${cotizacion.codigo}?`)) return;
+    setError('');
+    const res = await fetch(`${API}/cotizaciones/${cotizacion.codigo}/`, {
+      method: 'DELETE',
+      headers: headers(),
+    });
+    const data = await res.json();
+    if (!res.ok) return setError(data.error || 'No se pudo eliminar la cotización.');
+    await cargarCotizaciones(busqueda);
+  };
+
+  const headers = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` });
 
   useEffect(() => {
-    const rolesPermitidos = ['Administrador', 'Recepcionista'];
-    if (!usuarioLocal || !rolesPermitidos.includes(usuarioLocal.rol)) {
-      alert('Acceso denegado para gestion de cotizaciones.');
+    if (!usuarioLocal || !['Administrador', 'Recepcionista'].includes(usuarioLocal.rol)) {
+      alert('Acceso denegado para gestión de cotizaciones.');
       navigate(getHomeRouteByRole(usuarioLocal?.rol));
       return;
     }
-    cargarDatos();
+
+    cargarClientes();
+    cargarMotocicletas();
+    cargarCotizaciones();
   }, [navigate, usuarioLocal]);
 
-  const cargarDatos = async () => {
-    try {
-      setError('');
-      setCargando(true);
-      await Promise.all([
-        cargarCotizaciones(),
-        cargarClientes(),
-        cargarMotocicletas(),
-        cargarProductos(),
-      ]);
-    } catch {
-      setError('Error de conexion cargando datos.');
-    } finally {
-      setCargando(false);
-    }
-  };
-
-  const cargarCotizaciones = async () => {
-    const res = await fetch(`${API}/cotizaciones/`, { headers: headers(false) });
-    const data = await res.json();
-    if (!res.ok) {
-      setError(data.error || 'No se pudo cargar cotizaciones.');
-      setCotizaciones([]);
-      return;
-    }
-    setCotizaciones(Array.isArray(data) ? data : []);
-  };
-
   const cargarClientes = async () => {
-    const res = await fetch(`${API}/clientes/`, { headers: headers(false) });
+    const res = await fetch(`${API}/clientes/`, { headers: headers() });
     const data = await res.json();
-    if (!res.ok) {
-      setError(data.error || 'No se pudo cargar clientes.');
-      setClientes([]);
-      return;
-    }
-    setClientes(Array.isArray(data) ? data : []);
+    if (res.ok) setClientes(Array.isArray(data) ? data : []);
   };
 
   const cargarMotocicletas = async () => {
-    const res = await fetch(`${API}/motocicletas/`, { headers: headers(false) });
+    const res = await fetch(`${API}/motocicletas/`, { headers: headers() });
     const data = await res.json();
-    if (!res.ok) {
-      setError(data.error || 'No se pudo cargar motocicletas.');
-      setMotos([]);
-      return;
+    if (res.ok) setMotocicletas(Array.isArray(data) ? data : []);
+  };
+
+  const cargarCotizaciones = async (query = '') => {
+    try {
+      setError('');
+      const url = new URL(`${API}/cotizaciones/`);
+      if (query) url.searchParams.set('q', query);
+      const res = await fetch(url.toString(), { headers: headers() });
+      const data = await res.json();
+      if (!res.ok) return setError(data.error || 'No se pudo cargar cotizaciones.');
+      setCotizaciones(Array.isArray(data) ? data : []);
+    } catch {
+      setError('Error de conexión cargando cotizaciones.');
     }
-    setMotos(Array.isArray(data) ? data : []);
   };
 
-  const cargarProductos = async () => {
-    const res = await fetch(`${API}/productos/`, { headers: headers(false) });
-    const data = await res.json();
-    if (!res.ok) {
-      setError(data.error || 'No se pudo cargar productos.');
-      setProductos([]);
-      return;
-    }
-    setProductos(Array.isArray(data) ? data : []);
+  const actualizarDetalle = (index, field, value) => {
+    const detalles = [...nuevo.detalles];
+    detalles[index] = { ...detalles[index], [field]: value };
+    detalles[index].subtotal = Number(detalles[index].cantidad || 0) * Number(detalles[index].precio_unitario || 0);
+    setNuevo({ ...nuevo, detalles });
   };
 
-  const abrirNuevo = () => {
-    setError('');
-    setForm({
-      id_cliente: '',
-      id_motocicleta: '',
-      fecha_emision: hoyIso(),
-      dias_validez: '7',
-    });
-    setDetalles([]);
-    setMostrarNuevo(true);
+  const agregarLinea = () => {
+    setNuevo({ ...nuevo, detalles: [...nuevo.detalles, { tipo: '', descripcion: '', cantidad: 1, precio_unitario: 0, subtotal: 0 }] });
   };
 
-  const agregarRepuesto = () => {
-    setDetalles((prev) => [...prev, { tipo: 'Repuesto', producto_id: '', descripcion: '', cantidad: '', precio_unitario: '' }]);
+  const eliminarLinea = (index) => {
+    const detalles = nuevo.detalles.filter((_, i) => i !== index);
+    setNuevo({ ...nuevo, detalles: detalles.length ? detalles : [{ tipo: '', descripcion: '', cantidad: 1, precio_unitario: 0, subtotal: 0 }] });
   };
 
-  const agregarManoObra = () => {
-    setDetalles((prev) => [...prev, { tipo: 'Mano de obra', producto_id: '', descripcion: '', cantidad: '', precio_unitario: '' }]);
-  };
-
-  const quitarDetalle = (index) => {
-    setDetalles((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const actualizarDetalle = (index, campo, valor) => {
-    setDetalles((prev) => prev.map((item, i) => (i === index ? { ...item, [campo]: valor } : item)));
-  };
-
-  const calcularSubtotalFila = (detalle) => {
-    const cantidad = parseInt(detalle.cantidad, 10);
-    const precio = parseFloat(detalle.precio_unitario);
-    if (Number.isNaN(cantidad) || Number.isNaN(precio)) return 0;
-    return Number((cantidad * precio).toFixed(2));
-  };
-
-  const round2 = (value) => Number((Number(value) || 0).toFixed(2));
-  const subtotalGeneral = round2(detalles.reduce((acc, item) => acc + calcularSubtotalFila(item), 0));
-  const impuestoGeneral = round2(subtotalGeneral * 0.13);
-  const totalGeneral = round2(parseFloat(subtotalGeneral) + parseFloat(impuestoGeneral));
-
-  const formatMoney = (value) => {
-    const num = Number(value);
-    if (Number.isNaN(num)) return value ?? '-';
-    return num.toFixed(2);
-  };
-
-  const clientesPorId = useMemo(
-    () => new Map(clientes.map((c) => [c.codigo, c])),
-    [clientes]
-  );
-  const motosPorId = useMemo(
-    () => new Map(motos.map((m) => [m.codigo, m])),
-    [motos]
-  );
-  const productosPorId = useMemo(
-    () => new Map(productos.map((p) => [p.codigo, p])),
-    [productos]
-  );
-
-  const motosCliente = useMemo(() => {
-    if (!form.id_cliente) return [];
-    return motos.filter((m) => Number(m.id_cliente) === Number(form.id_cliente));
-  }, [motos, form.id_cliente]);
-
-  const obtenerCliente = (idCliente) => {
-    const cliente = clientesPorId.get(Number(idCliente));
-    return cliente ? cliente.nombre : 'Cliente no encontrado';
-  };
-
-  const cotizacionesFiltradas = useMemo(() => {
-    const texto = busqueda.trim().toLowerCase();
-    if (!texto) return cotizaciones;
-    return cotizaciones.filter((c) => {
-      const codigo = String(c.codigo ?? '').toLowerCase();
-      const clienteNombre = obtenerCliente(c.id_cliente).toLowerCase();
-      return codigo.includes(texto) || clienteNombre.includes(texto);
-    });
-  }, [busqueda, cotizaciones, clientesPorId]);
-
-  const obtenerMoto = (idMoto) => {
-    const moto = motosPorId.get(Number(idMoto));
-    return moto ? moto.placa : 'Motocicleta no encontrada';
-  };
-
-  const obtenerProducto = (idProducto) => {
-    const producto = productosPorId.get(Number(idProducto));
-    return producto ? producto.nombre : 'Producto no encontrado';
+  const calcularTotales = () => {
+    const subtotal = nuevo.detalles.reduce((sum, item) => sum + Number(item.subtotal || 0), 0);
+    const impuesto = Number(nuevo.impuesto || 0);
+    const total = subtotal + impuesto;
+    return { subtotal, total };
   };
 
   const crearCotizacion = async (e) => {
     e.preventDefault();
     setError('');
+    const { subtotal, total } = calcularTotales();
+    const payload = { ...nuevo, subtotal, total };
 
-    if (!form.id_cliente) return setError('Seleccione un cliente.');
-    if (!form.id_motocicleta) return setError('Seleccione una motocicleta.');
-    if (!form.fecha_emision) return setError('Ingrese fecha de emision.');
-    if (detalles.length === 0) return setError('Agregue al menos un detalle.');
-
-    for (let i = 0; i < detalles.length; i += 1) {
-      const detalle = detalles[i];
-      if (!detalle.cantidad || !detalle.precio_unitario) {
-        return setError(`Complete cantidad y precio en el detalle ${i + 1}.`);
+    try {
+      const res = await fetch(`${API}/cotizaciones/`, {
+        method: 'POST',
+        headers: headers(),
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return setError(data.error || JSON.stringify(data.errores || {}) || 'No se pudo crear la cotización.');
       }
-      if (detalle.tipo === 'Repuesto' && !detalle.producto_id) {
-        return setError(`Seleccione un repuesto en el detalle ${i + 1}.`);
-      }
-      if (detalle.tipo === 'Mano de obra' && !detalle.descripcion) {
-        return setError(`Ingrese descripcion en el detalle ${i + 1}.`);
-      }
+      setNuevo({ id_cliente: '', id_motocicleta: '', fecha_emision: '', fecha_validez: '', subtotal: 0, impuesto: 0, total: 0, estado: 'Pendiente', detalles: [{ tipo: '', descripcion: '', cantidad: 1, precio_unitario: 0, subtotal: 0 }] });
+      await cargarCotizaciones();
+    } catch (err) {
+      console.error('Error creando cotización:', err);
+      setError('Error de conexión al crear la cotización.');
     }
+  };
 
-    const fechaValidez = sumarDias(form.fecha_emision, Number(form.dias_validez || 0));
-
-    const detallesPayload = detalles.map((detalle) => {
-      const cantidad = parseInt(detalle.cantidad, 10);
-      const precio = parseFloat(detalle.precio_unitario);
-      const subtotal = round2(cantidad * precio);
-      const descripcion = detalle.tipo === 'Repuesto'
-        ? obtenerProducto(detalle.producto_id)
-        : detalle.descripcion;
-
-      return {
-        tipo: detalle.tipo,
-        descripcion,
-        cantidad,
-        precio_unitario: round2(precio),
-        subtotal,
-      };
-    });
-
-    const payload = {
-      id_cliente: Number(form.id_cliente),
-      id_motocicleta: Number(form.id_motocicleta),
-      fecha_emision: form.fecha_emision,
-      fecha_validez: fechaValidez,
-      subtotal: subtotalGeneral,
-      impuesto: impuestoGeneral,
-      total: totalGeneral,
-      estado: 'Pendiente',
-      detalles: detallesPayload,
-    };
-
-    const res = await fetch(`${API}/cotizaciones/`, {
-      method: 'POST',
-      headers: headers(),
-      body: JSON.stringify(payload),
-    });
+  const aceptarCotizacion = async (cotizacionId) => {
+    if (!window.confirm('¿Aceptar esta cotización y generar cliente/usuario si es necesario?')) return;
+    const res = await fetch(`${API}/cotizaciones/${cotizacionId}/aceptar/`, { method: 'POST', headers: headers() });
     const data = await res.json();
-    if (!res.ok) return setError(data.error || JSON.stringify(data));
-
-    setMostrarNuevo(false);
+    if (!res.ok) return setError(data.error || 'No se pudo aceptar la cotización.');
     await cargarCotizaciones();
   };
 
-  const actualizarEstado = async (cotizacion, nuevoEstado) => {
-    setError('');
-    const res = await fetch(`${API}/cotizaciones/${cotizacion.codigo}/`, {
-      method: 'PATCH',
-      headers: headers(),
-      body: JSON.stringify({ estado: nuevoEstado }),
-    });
-    const data = await res.json();
-    if (!res.ok) return setError(data.error || JSON.stringify(data));
-
-    setCotizaciones((prev) => prev.map((item) => (
-      item.codigo === cotizacion.codigo ? { ...item, estado: nuevoEstado } : item
-    )));
-    setDetalleSeleccion((prev) => (
-      prev && prev.codigo === cotizacion.codigo ? { ...prev, estado: nuevoEstado } : prev
-    ));
-  };
-
-  const imprimirPdf = () => {
-    window.print();
-  };
-
-  const detalleSubtotal = detalleSeleccion ? round2(detalleSeleccion.subtotal ?? 0) : 0;
-  const detalleImpuesto = round2(detalleSubtotal * 0.13);
-  const detalleTotal = round2(parseFloat(detalleSubtotal) + parseFloat(detalleImpuesto));
-
   return (
     <div style={{ padding: '30px', backgroundColor: '#121212', minHeight: '100vh', color: 'white' }}>
-      <style>{`
-        @media print {
-          /* Ocultar absolutamente todo en la pagina */
-          body * {
-            visibility: hidden;
-          }
-          /* Hacer visible SOLO el area de impresion y sus elementos hijos */
-          #area-impresion, #area-impresion * {
-            visibility: visible;
-            color: black !important;
-          }
-          /* Posicionar el recibo en la esquina superior izquierda de la hoja en blanco */
-          #area-impresion {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-          }
-          /* Forzar tabla blanca y sin fondos oscuros */
-          #area-impresion table, #area-impresion th, #area-impresion td {
-            background-color: transparent !important;
-            border-color: black !important;
-          }
-          /* Eliminar margenes extra para que no genere una segunda pagina vacia */
-          @page {
-            margin: 0.5cm;
-          }
-        }
-      `}</style>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
-        <h2 style={{ color: '#ff6600', margin: 0 }}>Gestion de Cotizaciones (CU07)</h2>
+        <h2 style={{ color: '#ff6600', margin: 0 }}>Elaborar Cotizaciones (CU07)</h2>
         <div>
-          <button
-            onClick={() => navigate('/perfil')}
-            style={{ marginRight: '10px', padding: '8px 16px', backgroundColor: '#333', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}
-          >
-            Mi Perfil
-          </button>
-          <button
-            onClick={() => navigate(getHomeRouteByRole(usuarioLocal?.rol))}
-            style={{ padding: '8px 16px', backgroundColor: '#333', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}
-          >
-            Inicio
-          </button>
+          <button onClick={() => navigate('/inicio')} style={{ marginRight: '10px', padding: '8px 16px', backgroundColor: '#333', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>Inicio</button>
+          <button onClick={() => navigate('/perfil')} style={{ padding: '8px 16px', backgroundColor: '#333', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>Mi Perfil</button>
         </div>
       </div>
 
       {error && <div className="error-box" style={{ marginBottom: '15px' }}>{error}</div>}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', gap: '12px' }}>
-        <h3 style={{ margin: 0 }}>Listado</h3>
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-          <input
-            placeholder="Buscar por cliente o codigo"
-            value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
-            style={{ padding: '8px 12px', width: '260px', borderRadius: '6px', border: '1px solid #444', backgroundColor: '#2a2a2a', color: 'white' }}
-          />
-          <button
-            onClick={abrirNuevo}
-            style={{ padding: '8px 12px', backgroundColor: '#ff6600', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}
-          >
-            Nueva Cotizacion
-          </button>
-        </div>
-      </div>
-
-      <div style={{ backgroundColor: '#1e1e1e', padding: '20px', borderRadius: '10px' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: '1px solid #444' }}>
-              <th style={{ textAlign: 'left', padding: '8px' }}>Codigo</th>
-              <th style={{ textAlign: 'left', padding: '8px' }}>Cliente</th>
-              <th style={{ textAlign: 'left', padding: '8px' }}>Fecha Emision</th>
-              <th style={{ textAlign: 'left', padding: '8px' }}>Total</th>
-              <th style={{ textAlign: 'left', padding: '8px' }}>Estado</th>
-              <th style={{ textAlign: 'left', padding: '8px' }}>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {cotizacionesFiltradas.map((c) => {
-              const estadoActual = c.estado || 'Pendiente';
-              const esPendiente = estadoActual === 'Pendiente';
-              return (
-                <tr key={c.codigo} style={{ borderBottom: '1px solid #2c2c2c' }}>
-                  <td style={{ padding: '8px' }}>{c.codigo}</td>
-                  <td style={{ padding: '8px' }}>{obtenerCliente(c.id_cliente)}</td>
-                  <td style={{ padding: '8px' }}>{c.fecha_emision || '-'}</td>
-                  <td style={{ padding: '8px' }}>{formatMoney(c.total)}</td>
-                  <td style={{ padding: '8px' }}>{estadoActual}</td>
-                  <td style={{ padding: '8px' }}>
-                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                      <button
-                        onClick={() => setDetalleSeleccion(c)}
-                        style={{ backgroundColor: '#2c5f8f', border: 'none', color: 'white', borderRadius: '4px', padding: '6px 10px', cursor: 'pointer' }}
-                      >
-                        Ver Detalles
-                      </button>
-                      {esPendiente && (
-                        <>
-                          <button
-                            onClick={() => actualizarEstado(c, 'Aprobada')}
-                            style={{ backgroundColor: '#2f8f4e', border: 'none', color: 'white', borderRadius: '4px', padding: '6px 10px', cursor: 'pointer' }}
-                          >
-                            Aprobar
-                          </button>
-                          <button
-                            onClick={() => actualizarEstado(c, 'Rechazada')}
-                            style={{ backgroundColor: '#8f2d2d', border: 'none', color: 'white', borderRadius: '4px', padding: '6px 10px', cursor: 'pointer' }}
-                          >
-                            Rechazar
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-            {!cargando && cotizacionesFiltradas.length === 0 && (
-              <tr>
-                <td colSpan="6" style={{ padding: '12px', color: '#999' }}>
-                  {busqueda ? 'Sin resultados para la busqueda.' : 'Sin cotizaciones registradas.'}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {mostrarNuevo && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-          <div style={{ width: '100%', maxWidth: '760px', backgroundColor: '#1e1e1e', border: '1px solid #333', borderRadius: '10px', padding: '20px' }}>
-            <h3 style={{ marginTop: 0, color: '#ff6600' }}>Nueva Cotizacion</h3>
-            <form onSubmit={crearCotizacion}>
-              <div className="input-group">
-                <label>Cliente</label>
-                <select
-                  value={form.id_cliente}
-                  onChange={(e) => setForm({ ...form, id_cliente: e.target.value, id_motocicleta: '' })}
-                  style={{ width: '100%', padding: '12px', borderRadius: '5px', backgroundColor: '#2a2a2a', color: 'white', border: '1px solid #333' }}
-                  required
-                >
-                  <option value="">Seleccione cliente</option>
-                  {clientes.map((c) => (
-                    <option key={c.codigo} value={c.codigo}>{c.nombre}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="input-group">
-                <label>Motocicleta</label>
-                <select
-                  value={form.id_motocicleta}
-                  onChange={(e) => setForm({ ...form, id_motocicleta: e.target.value })}
-                  style={{ width: '100%', padding: '12px', borderRadius: '5px', backgroundColor: '#2a2a2a', color: 'white', border: '1px solid #333' }}
-                  disabled={!form.id_cliente}
-                  required
-                >
-                  <option value="">Seleccione motocicleta</option>
-                  {motosCliente.map((m) => (
-                    <option key={m.codigo} value={m.codigo}>{m.placa}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="input-group"><label>Fecha Emision</label><input type="date" value={form.fecha_emision} onChange={(e) => setForm({ ...form, fecha_emision: e.target.value })} required /></div>
-              <div className="input-group">
-                <label>Fecha Validez</label>
-                <select
-                  value={form.dias_validez}
-                  onChange={(e) => setForm({ ...form, dias_validez: e.target.value })}
-                  style={{ width: '100%', padding: '12px', borderRadius: '5px', backgroundColor: '#2a2a2a', color: 'white', border: '1px solid #333' }}
-                >
-                  <option value="7">7 dias</option>
-                  <option value="15">15 dias</option>
-                  <option value="30">30 dias</option>
-                </select>
-                <div style={{ marginTop: '6px', color: '#ccc', fontSize: '12px' }}>
-                  Vence el {sumarDias(form.fecha_emision, Number(form.dias_validez || 0)) || '-'}
-                </div>
-              </div>
-
-              <div style={{ marginTop: '10px', marginBottom: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h4 style={{ margin: 0 }}>Detalles</h4>
-                <div>
-                  <button
-                    type="button"
-                    onClick={agregarRepuesto}
-                    style={{ marginRight: '8px', padding: '6px 10px', backgroundColor: '#2c5f8f', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                  >
-                    Agregar Repuesto
-                  </button>
-                  <button
-                    type="button"
-                    onClick={agregarManoObra}
-                    style={{ padding: '6px 10px', backgroundColor: '#5f8f2c', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                  >
-                    Agregar Mano de Obra
-                  </button>
-                </div>
-              </div>
-
-              {detalles.length === 0 && (
-                <div style={{ color: '#999', marginBottom: '10px' }}>Agregue detalles a la cotizacion.</div>
-              )}
-
-              {detalles.map((detalle, index) => (
-                <div key={`detalle-${index}`} style={{ display: 'grid', gridTemplateColumns: '0.8fr 1.8fr 0.6fr 0.6fr 0.6fr auto', gap: '8px', alignItems: 'center', marginBottom: '10px' }}>
-                  <input
-                    value={detalle.tipo}
-                    readOnly
-                    style={{ padding: '10px', borderRadius: '5px', backgroundColor: '#1b1b1b', color: '#ccc', border: '1px solid #333' }}
-                  />
-                  {detalle.tipo === 'Repuesto' ? (
-                    <select
-                      value={detalle.producto_id}
-                      onChange={(e) => actualizarDetalle(index, 'producto_id', e.target.value)}
-                      style={{ padding: '10px', borderRadius: '5px', backgroundColor: '#2a2a2a', color: 'white', border: '1px solid #333' }}
-                    >
-                      <option value="">Seleccione producto</option>
-                      {productos.map((p) => (
-                        <option key={p.codigo} value={p.codigo}>{p.nombre}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      placeholder="Descripcion"
-                      value={detalle.descripcion}
-                      onChange={(e) => actualizarDetalle(index, 'descripcion', e.target.value)}
-                      style={{ padding: '10px', borderRadius: '5px', backgroundColor: '#2a2a2a', color: 'white', border: '1px solid #333' }}
-                    />
-                  )}
-                  <input
-                    type="number"
-                    placeholder="Cantidad"
-                    value={detalle.cantidad}
-                    onChange={(e) => actualizarDetalle(index, 'cantidad', e.target.value)}
-                    style={{ padding: '10px', borderRadius: '5px', backgroundColor: '#2a2a2a', color: 'white', border: '1px solid #333' }}
-                  />
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="Precio"
-                    value={detalle.precio_unitario}
-                    onChange={(e) => actualizarDetalle(index, 'precio_unitario', e.target.value)}
-                    style={{ padding: '10px', borderRadius: '5px', backgroundColor: '#2a2a2a', color: 'white', border: '1px solid #333' }}
-                  />
-                  <input
-                    type="text"
-                    value={formatMoney(calcularSubtotalFila(detalle))}
-                    readOnly
-                    style={{ padding: '10px', borderRadius: '5px', backgroundColor: '#1b1b1b', color: '#ccc', border: '1px solid #333' }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => quitarDetalle(index)}
-                    style={{ padding: '6px 10px', backgroundColor: '#8f2d2d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                  >
-                    Quitar
-                  </button>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px' }}>
+        <div style={{ backgroundColor: '#1e1e1e', padding: '20px', borderRadius: '10px' }}>
+          <h3>Registrar cotización</h3>
+          <form onSubmit={crearCotizacion}>
+            <div className="input-group"><label>Cliente</label><select value={nuevo.id_cliente} onChange={(e) => setNuevo({ ...nuevo, id_cliente: Number(e.target.value) })} required><option value="">Seleccione</option>{clientes.map((c) => (<option key={c.codigo} value={c.codigo}>{c.nombre}</option>))}</select></div>
+            <div className="input-group"><label>Motocicleta</label><select value={nuevo.id_motocicleta} onChange={(e) => setNuevo({ ...nuevo, id_motocicleta: Number(e.target.value) })} required><option value="">Seleccione</option>{motocicletas.map((m) => (<option key={m.codigo} value={m.codigo}>{`${m.placa} - ${m.marca || ''} ${m.modelo || ''}`}</option>))}</select></div>
+            <div className="input-group"><label>Fecha emisión</label><input type="date" value={nuevo.fecha_emision} onChange={(e) => setNuevo({ ...nuevo, fecha_emision: e.target.value })} required /></div>
+            <div className="input-group"><label>Fecha validez</label><input type="date" value={nuevo.fecha_validez} onChange={(e) => setNuevo({ ...nuevo, fecha_validez: e.target.value })} required /></div>
+            <div style={{ marginTop: '15px' }}>
+              <h4>Items</h4>
+              {nuevo.detalles.map((detalle, index) => (
+                <div key={index} style={{ backgroundColor: '#121212', padding: '12px', borderRadius: '8px', marginBottom: '10px' }}>
+                  <div className="input-group"><label>Tipo</label><input value={detalle.tipo} onChange={(e) => actualizarDetalle(index, 'tipo', e.target.value)} /></div>
+                  <div className="input-group"><label>Descripción</label><input value={detalle.descripcion} onChange={(e) => actualizarDetalle(index, 'descripcion', e.target.value)} /></div>
+                  <div className="input-group"><label>Cantidad</label><input type="number" min="1" value={detalle.cantidad} onChange={(e) => actualizarDetalle(index, 'cantidad', Number(e.target.value))} /></div>
+                  <div className="input-group"><label>Precio unitario</label><input type="number" step="0.01" value={detalle.precio_unitario} onChange={(e) => actualizarDetalle(index, 'precio_unitario', Number(e.target.value))} /></div>
+                  <div className="input-group"><label>Subtotal</label><input type="number" step="0.01" value={detalle.subtotal} disabled /></div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}><button type="button" onClick={() => eliminarLinea(index)} style={{ backgroundColor: '#8f2d2d', border: 'none', color: 'white', borderRadius: '5px', padding: '6px 10px', cursor: 'pointer' }}>Eliminar</button></div>
                 </div>
               ))}
+              <button type="button" onClick={agregarLinea} style={{ padding: '8px 12px', borderRadius: '5px', border: 'none', backgroundColor: '#2c5f8f', color: 'white', cursor: 'pointer' }}>Agregar item</button>
+            </div>
+            <div className="input-group"><label>Impuesto</label><input type="number" step="0.01" value={nuevo.impuesto} onChange={(e) => setNuevo({ ...nuevo, impuesto: Number(e.target.value) })} /></div>
+            <div style={{ marginTop: '12px' }}>
+              <strong>Subtotal:</strong> ${calcularTotales().subtotal} <br />
+              <strong>Impuesto:</strong> ${Number(nuevo.impuesto || 0).toFixed(2)} <br />
+              <strong>Total:</strong> ${calcularTotales().total} <br />
+              <strong>Estado inicial:</strong> {nuevo.estado}
+            </div>
+            <button type="submit" className="btn-login" style={{ marginTop: '16px' }}>Crear cotización</button>
+          </form>
+        </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '20px', marginTop: '10px', marginBottom: '10px' }}>
-                <div>Subtotal: {formatMoney(subtotalGeneral)}</div>
-                <div>Impuesto (13%): {formatMoney(impuestoGeneral)}</div>
-                <div>Total: {formatMoney(totalGeneral)}</div>
-              </div>
-
+        <div style={{ backgroundColor: '#1e1e1e', padding: '20px', borderRadius: '10px' }}>
+          <h3>Listado de cotizaciones</h3>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginBottom: '16px' }}>
+            <input
+              type="text"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="Buscar cotización por cliente o motocicleta"
+              style={{ flex: '1', minWidth: '220px', padding: '10px', borderRadius: '6px', border: '1px solid #444', backgroundColor: '#111', color: 'white' }}
+            />
+            <button
+              type="button"
+              onClick={BuscarCotizaciones}
+              style={{ padding: '10px 16px', backgroundColor: '#2c5f8f', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+            >
+              Buscar
+            </button>
+            <button
+              type="button"
+              onClick={() => cargarCotizaciones('')}
+              style={{ padding: '10px 16px', backgroundColor: '#444', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+            >
+              Mostrar todo
+            </button>
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid #444' }}>
+                <th style={{ textAlign: 'left', padding: '8px' }}>Código</th>
+                <th style={{ textAlign: 'left', padding: '8px' }}>Cliente</th>
+                <th style={{ textAlign: 'left', padding: '8px' }}>Motocicleta</th>
+                <th style={{ textAlign: 'left', padding: '8px' }}>Fecha emisión</th>
+                <th style={{ textAlign: 'left', padding: '8px' }}>Fecha validez</th>
+                <th style={{ textAlign: 'left', padding: '8px' }}>Subtotal</th>
+                <th style={{ textAlign: 'left', padding: '8px' }}>Impuesto</th>
+                <th style={{ textAlign: 'left', padding: '8px' }}>Total</th>
+                <th style={{ textAlign: 'left', padding: '8px' }}>Estado</th>
+                <th style={{ textAlign: 'left', padding: '8px' }}>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cotizacionesOrdenadas.map((c) => (
+                <tr key={c.codigo} style={{ borderBottom: '1px solid #2c2c2c' }}>
+                  <td style={{ padding: '8px' }}>#{c.codigo}</td>
+                  <td style={{ padding: '8px' }}>{c.id_cliente_nombre || '-'}</td>
+                  <td style={{ padding: '8px' }}>{c.id_motocicleta_placa || '-'}</td>
+                  <td style={{ padding: '8px' }}>{c.fecha_emision || '-'}</td>
+                  <td style={{ padding: '8px' }}>{c.fecha_validez || '-'}</td>
+                  <td style={{ padding: '8px' }}>${c.subtotal}</td>
+                  <td style={{ padding: '8px' }}>${c.impuesto}</td>
+                  <td style={{ padding: '8px' }}>${c.total}</td>
+                  <td style={{ padding: '8px' }}>{c.estado || '-'}</td>
+                  <td style={{ padding: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <button onClick={() => aceptarCotizacion(c.codigo)} style={{ backgroundColor: '#2c5f8f', border: 'none', color: 'white', borderRadius: '4px', padding: '6px 10px', cursor: 'pointer' }}>Aceptar</button>
+                    <button onClick={() => abrirEdicionCotizacion(c)} style={{ backgroundColor: '#2c5f8f', border: 'none', color: 'white', borderRadius: '4px', padding: '6px 10px', cursor: 'pointer' }}>Editar</button>
+                    <button onClick={() => eliminarCotizacion(c)} style={{ backgroundColor: '#8f2d2d', border: 'none', color: 'white', borderRadius: '4px', padding: '6px 10px', cursor: 'pointer' }}>Eliminar</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {cotizacionEdicion && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+          <div style={{ width: '100%', maxWidth: '560px', maxHeight: '80vh', overflowY: 'auto', backgroundColor: '#1e1e1e', border: '1px solid #333', borderRadius: '10px', padding: '20px' }}>
+            <h3 style={{ marginTop: 0, color: '#ff6600' }}>Editar cotización #{cotizacionEdicion.codigo}</h3>
+            <form onSubmit={guardarEdicionCotizacion}>
+              <div className="input-group"><label>Cliente</label><select value={editCotizacion.id_cliente} onChange={(e) => setEditCotizacion({ ...editCotizacion, id_cliente: Number(e.target.value) })} required><option value="">Seleccione</option>{clientes.map((c) => (<option key={c.codigo} value={c.codigo}>{c.nombre}</option>))}</select></div>
+              <div className="input-group"><label>Motocicleta</label><select value={editCotizacion.id_motocicleta} onChange={(e) => setEditCotizacion({ ...editCotizacion, id_motocicleta: Number(e.target.value) })} required><option value="">Seleccione</option>{motocicletas.map((m) => (<option key={m.codigo} value={m.codigo}>{`${m.placa} - ${m.marca || ''} ${m.modelo || ''}`}</option>))}</select></div>
+              <div className="input-group"><label>Fecha emisión</label><input type="date" value={editCotizacion.fecha_emision} onChange={(e) => setEditCotizacion({ ...editCotizacion, fecha_emision: e.target.value })} required /></div>
+              <div className="input-group"><label>Fecha validez</label><input type="date" value={editCotizacion.fecha_validez} onChange={(e) => setEditCotizacion({ ...editCotizacion, fecha_validez: e.target.value })} required /></div>
+              <div className="input-group"><label>Impuesto</label><input type="number" step="0.01" value={editCotizacion.impuesto} onChange={(e) => setEditCotizacion({ ...editCotizacion, impuesto: Number(e.target.value) })} /></div>
+              <div className="input-group"><label>Estado</label><select value={editCotizacion.estado} onChange={(e) => setEditCotizacion({ ...editCotizacion, estado: e.target.value })}><option value="Pendiente">Pendiente</option><option value="Aprobado">Aprobado</option><option value="Rechazado">Rechazado</option></select></div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-                <button type="button" onClick={() => setMostrarNuevo(false)} style={{ padding: '8px 12px', backgroundColor: '#444', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>Cancelar</button>
-                <button type="submit" style={{ padding: '8px 12px', backgroundColor: '#ff6600', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>Guardar</button>
+                <button type="button" onClick={() => setCotizacionEdicion(null)} style={{ padding: '8px 12px', backgroundColor: '#444', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>Cancelar</button>
+                <button type="submit" style={{ padding: '8px 12px', backgroundColor: '#ff6600', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>Guardar cambios</button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {detalleSeleccion && (
-        <div className="print-overlay" style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-          <div className="print-area" style={{ width: '100%', maxWidth: '760px', backgroundColor: '#1e1e1e', border: '1px solid #333', borderRadius: '10px', padding: '20px' }}>
-            <div id="area-impresion">
-              <h3 style={{ marginTop: 0, color: '#ff6600' }}>Detalle de Cotizacion</h3>
-              <div style={{ marginBottom: '12px' }}>
-                <strong>Cliente:</strong> {obtenerCliente(detalleSeleccion.id_cliente)}<br />
-                <strong>Motocicleta:</strong> {obtenerMoto(detalleSeleccion.id_motocicleta)}<br />
-                <strong>Fecha Emision:</strong> {detalleSeleccion.fecha_emision || '-'}<br />
-                <strong>Estado:</strong> {detalleSeleccion.estado || 'Pendiente'}
-              </div>
-              <div style={{ backgroundColor: '#151515', padding: '12px', borderRadius: '8px' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid #444' }}>
-                      <th style={{ textAlign: 'left', padding: '6px' }}>Tipo</th>
-                      <th style={{ textAlign: 'left', padding: '6px' }}>Descripcion</th>
-                      <th style={{ textAlign: 'left', padding: '6px' }}>Cantidad</th>
-                      <th style={{ textAlign: 'left', padding: '6px' }}>Precio</th>
-                      <th style={{ textAlign: 'left', padding: '6px' }}>Subtotal</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(detalleSeleccion.detalles || []).map((detalle, index) => (
-                      <tr key={`detalle-cot-${index}`} style={{ borderBottom: '1px solid #2c2c2c' }}>
-                        <td style={{ padding: '6px' }}>{detalle.tipo}</td>
-                        <td style={{ padding: '6px' }}>{detalle.descripcion || '-'}</td>
-                        <td style={{ padding: '6px' }}>{detalle.cantidad}</td>
-                        <td style={{ padding: '6px' }}>{formatMoney(detalle.precio_unitario)}</td>
-                        <td style={{ padding: '6px' }}>{formatMoney(detalle.subtotal)}</td>
-                      </tr>
-                    ))}
-                    {(detalleSeleccion.detalles || []).length === 0 && (
-                      <tr>
-                        <td colSpan="5" style={{ padding: '10px', color: '#999' }}>Sin detalles para esta cotizacion.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px' }}>
-                <div>
-                  <div>Subtotal: {formatMoney(detalleSubtotal)}</div>
-                  <div>Impuesto (13%): {formatMoney(detalleImpuesto)}</div>
-                  <div>Total: {formatMoney(detalleTotal)}</div>
-                </div>
-              </div>
-            </div>
-            <div className="no-print" style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '12px' }}>
-              <button type="button" onClick={imprimirPdf} style={{ padding: '8px 12px', backgroundColor: '#2c5f8f', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>Imprimir PDF</button>
-              <button type="button" onClick={() => setDetalleSeleccion(null)} style={{ padding: '8px 12px', backgroundColor: '#444', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>Cerrar</button>
-            </div>
           </div>
         </div>
       )}
