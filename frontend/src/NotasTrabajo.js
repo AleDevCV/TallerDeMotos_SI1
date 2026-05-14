@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import './Login.css';
 import { getHomeRouteByRole } from './navigation';
 import { API_BASE_URL } from './config';
+import { validarPermisoModulo } from './permissions';
 
 const API = `${API_BASE_URL}/api`;
 
@@ -99,14 +100,28 @@ const NotasTrabajo = () => {
   const headers = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` });
 
   useEffect(() => {
-    if (!usuarioLocal || !['Administrador', 'Mecanico'].includes(usuarioLocal.rol)) {
-      alert('Acceso denegado para notas de trabajo.');
-      navigate(getHomeRouteByRole(usuarioLocal?.rol));
+    if (!usuarioLocal) {
+      navigate('/login');
       return;
     }
 
-    cargarOrdenes();
-    cargarNotas();
+    const validarAcceso = async () => {
+      const permitido = await validarPermisoModulo(
+        'CU09',
+        ['Mostrar', 'Buscar', 'Adicionar', 'Eliminar', 'Editar'],
+        usuarioLocal?.rol
+      );
+      if (!permitido) {
+        alert('Acceso denegado para notas de trabajo.');
+        navigate(getHomeRouteByRole(usuarioLocal?.rol));
+        return;
+      }
+
+      cargarOrdenes();
+      cargarNotas();
+    };
+
+    validarAcceso();
   }, [navigate, usuarioLocal]);
 
   const cargarOrdenes = async () => {

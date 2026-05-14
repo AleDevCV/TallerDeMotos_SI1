@@ -17,6 +17,41 @@ const Login = () => {
 
   const navigate = useNavigate();
 
+  const resolveHomeRoute = async (usuario) => {
+    if (!usuario?.rol) {
+      return '/login';
+    }
+    if (usuario.rol === 'Administrador') {
+      return '/bitacora';
+    }
+
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        return getHomeRouteByRole(usuario.rol);
+      }
+      const res = await fetch(`${API_BASE_URL}/api/permisos/`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => []);
+      if (res.ok && Array.isArray(data)) {
+        const tieneBitacora = data.some(
+          (permiso) =>
+            permiso.codigo_cu === 'CU20'
+            && permiso.permitido
+            && ['Mostrar', 'Buscar', 'Exportar'].includes(permiso.accion)
+        );
+        if (tieneBitacora) {
+          return '/bitacora';
+        }
+      }
+    } catch {
+      // Fallback to role-based route
+    }
+
+    return getHomeRouteByRole(usuario.rol);
+  };
+
   // Función que se ejecuta al hacer clic en "Ingresar"
   const manejarSubmit = async (e) => {
     e.preventDefault(); // Evita que la página se recargue
@@ -44,7 +79,8 @@ const Login = () => {
         if (datos.requires_password_change) {
           navigate('/cambiar-password-obligatorio');
         } else {
-          navigate(getHomeRouteByRole(datos.usuario?.rol));
+          const homeRoute = await resolveHomeRoute(datos.usuario);
+          navigate(homeRoute);
         }
         
         // Más adelante, aquí pondremos el código para llevarlo a la pantalla de Inicio/Bitácora

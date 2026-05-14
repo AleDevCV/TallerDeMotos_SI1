@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import './Login.css';
 import { getHomeRouteByRole } from './navigation';
 import { API_BASE_URL } from './config';
+import { validarPermisoModulo } from './permissions';
 
 const API = `${API_BASE_URL}/api`;
 
@@ -156,15 +157,29 @@ const Cotizaciones = () => {
   const headers = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` });
 
   useEffect(() => {
-    if (!usuarioLocal || !['Administrador', 'Recepcionista'].includes(usuarioLocal.rol)) {
-      alert('Acceso denegado para gestión de cotizaciones.');
-      navigate(getHomeRouteByRole(usuarioLocal?.rol));
+    if (!usuarioLocal) {
+      navigate('/login');
       return;
     }
 
-    cargarClientes();
-    cargarMotocicletas();
-    cargarCotizaciones();
+    const validarAcceso = async () => {
+      const permitido = await validarPermisoModulo(
+        'CU07',
+        ['Mostrar', 'Buscar', 'Adicionar', 'Eliminar', 'Editar'],
+        usuarioLocal?.rol
+      );
+      if (!permitido) {
+        alert('Acceso denegado para gestión de cotizaciones.');
+        navigate(getHomeRouteByRole(usuarioLocal?.rol));
+        return;
+      }
+
+      cargarClientes();
+      cargarMotocicletas();
+      cargarCotizaciones();
+    };
+
+    validarAcceso();
   }, [navigate, usuarioLocal]);
 
   const cargarClientes = async () => {

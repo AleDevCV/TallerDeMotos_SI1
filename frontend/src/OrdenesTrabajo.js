@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import './Login.css';
 import { getHomeRouteByRole } from './navigation';
 import { API_BASE_URL } from './config';
+import { validarPermisoModulo } from './permissions';
 
 const API = `${API_BASE_URL}/api`;
 
@@ -128,16 +129,31 @@ const OrdenesTrabajo = () => {
   const headers = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` });
 
   useEffect(() => {
-    if (!usuarioLocal || !['Administrador', 'Recepcionista', 'Mecanico'].includes(usuarioLocal.rol)) {
-      alert('Acceso denegado para gestión de órdenes de trabajo.');
-      navigate(getHomeRouteByRole(usuarioLocal?.rol));
+    if (!usuarioLocal) {
+      navigate('/login');
       return;
     }
-    cargarClientes();
-    cargarMotocicletas();
-    cargarCotizaciones();
-    cargarUsuarios();
-    cargarOrdenes();
+
+    const validarAcceso = async () => {
+      const permitido = await validarPermisoModulo(
+        'CU08',
+        ['Mostrar', 'Buscar', 'Adicionar', 'Eliminar', 'Editar'],
+        usuarioLocal?.rol
+      );
+      if (!permitido) {
+        alert('Acceso denegado para gestión de órdenes de trabajo.');
+        navigate(getHomeRouteByRole(usuarioLocal?.rol));
+        return;
+      }
+
+      cargarClientes();
+      cargarMotocicletas();
+      cargarCotizaciones();
+      cargarUsuarios();
+      cargarOrdenes();
+    };
+
+    validarAcceso();
   }, [navigate, usuarioLocal]);
 
   const cargarClientes = async () => {

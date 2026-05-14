@@ -119,6 +119,34 @@ def exigir_roles(usuario, roles_permitidos):
     return None
 
 
+def tiene_permiso_modulo(usuario, codigo_cu, accion):
+    try:
+        ensure_permiso_modulo_table()
+    except OperationalError:
+        return False
+    return PermisoModulo.objects.filter(
+        id_rol=usuario.id_rol,
+        codigo_cu=codigo_cu,
+        accion__iexact=accion,
+        permitido=True,
+    ).exists()
+
+
+def exigir_permiso_modulo(usuario, codigo_cu, acciones):
+    if usuario.id_rol.nombre == 'Administrador':
+        return None
+
+    if isinstance(acciones, (list, tuple, set)):
+        acciones_validas = acciones
+    else:
+        acciones_validas = [acciones]
+
+    if any(tiene_permiso_modulo(usuario, codigo_cu, accion) for accion in acciones_validas):
+        return None
+
+    return Response({"exito": False, "error": "No autorizado para esta operación."}, status=403)
+
+
 def ensure_permiso_modulo_table():
     with connection.cursor() as cursor:
         cursor.execute(
@@ -159,6 +187,22 @@ def normalizar_usuario_desde_nombre(nombre_completo):
     partes = re.findall(r'[a-z0-9]+', texto)
     base = ''.join(partes)
     return base or 'cliente'
+
+
+def resolver_rol_por_nombre(nombre_rol):
+    if not nombre_rol:
+        return None
+
+    rol = Rol.objects.filter(nombre__iexact=nombre_rol).first()
+    if rol:
+        return rol
+
+    nombre_normalizado = normalizar_usuario_desde_nombre(nombre_rol)
+    for candidato in Rol.objects.all():
+        if normalizar_usuario_desde_nombre(candidato.nombre) == nombre_normalizado:
+            return candidato
+
+    return None
 
 
 def generar_usuario_unico_para_cliente(nombre_completo):
@@ -565,17 +609,25 @@ def bitacora_api(request):
     if error_auth:
         return error_auth
 
-    error_admin = exigir_admin(usuario_sesion)
-    if error_admin:
-        return error_admin
-
-    registros = Bitacora.objects.select_related('id_usuario').all()
-
     usuario_id = request.GET.get('usuario')
     accion = request.GET.get('accion', '').strip()
     fecha_desde = request.GET.get('fecha_desde', '').strip()
     fecha_hasta = request.GET.get('fecha_hasta', '').strip()
     exportar = request.GET.get('export', '').strip().lower()
+
+    if usuario_sesion.id_rol.nombre != 'Administrador':
+        acciones_requeridas = []
+        if exportar == 'csv':
+            acciones_requeridas.append('Exportar')
+        if usuario_id or accion or fecha_desde or fecha_hasta:
+            acciones_requeridas.append('Buscar')
+        if not acciones_requeridas:
+            acciones_requeridas.append('Mostrar')
+
+        if not any(tiene_permiso_modulo(usuario_sesion, 'CU20', acc) for acc in acciones_requeridas):
+            return Response({"exito": False, "error": "No autorizado para ver la bitacora."}, status=403)
+
+    registros = Bitacora.objects.select_related('id_usuario').all()
 
     if usuario_id:
         registros = registros.filter(id_usuario_id=usuario_id)
@@ -1132,14 +1184,17 @@ def proveedores_api(request):
     if error_auth:
         return error_auth
 
-    error_rol = exigir_roles(usuario_sesion, ['Administrador', 'Recepcionista'])
-    if error_rol:
-        return error_rol
-
     if request.method == 'GET':
+        error_permiso = exigir_permiso_modulo(usuario_sesion, 'CU13', 'Mostrar')
+        if error_permiso:
+            return error_permiso
         proveedores = Proveedores.mostrarProveedor()
         serializer = ProveedorSerializer(proveedores, many=True)
         return Response(serializer.data, status=200)
+
+    error_permiso = exigir_permiso_modulo(usuario_sesion, 'CU13', 'Adicionar')
+    if error_permiso:
+        return error_permiso
 
     serializer = Proveedores.verificarDatosProveedor(request.data)
     if not serializer.is_valid():
@@ -1157,16 +1212,15 @@ def proveedor_detalle_api(request, proveedor_id):
     if error_auth:
         return error_auth
 
-    error_rol = exigir_roles(usuario_sesion, ['Administrador', 'Recepcionista'])
-    if error_rol:
-        return error_rol
-
     try:
         proveedor = Proveedor.objects.get(codigo=proveedor_id)
     except Proveedor.DoesNotExist:
         return Response({"exito": False, "error": "Proveedor no encontrado."}, status=404)
 
     if request.method == 'PUT':
+        error_permiso = exigir_permiso_modulo(usuario_sesion, 'CU13', 'Editar')
+        if error_permiso:
+            return error_permiso
         serializer = ProveedorSerializer(proveedor, data=request.data, partial=True)
         if not serializer.is_valid():
             return Response({"exito": False, "errores": serializer.errors}, status=400)
@@ -1175,6 +1229,10 @@ def proveedor_detalle_api(request, proveedor_id):
         Proveedores.notificarActualizacion(usuario_sesion, proveedor_actualizado)
         confirmacion = Proveedores.RetornaDatosYConfirmacion(True)
         return Response({"exito": True, "mensaje": "Proveedor actualizado.", **confirmacion}, status=200)
+
+    error_permiso = exigir_permiso_modulo(usuario_sesion, 'CU13', 'Eliminar')
+    if error_permiso:
+        return error_permiso
 
     proveedor.delete()
     registrar_bitacora(usuario_sesion, 'ELIMINACIÓN', f"Eliminó proveedor: {proveedor.empresa}.")
@@ -1190,16 +1248,20 @@ def productos_api(request):
     if error_auth:
         return error_auth
 
-    error_rol = exigir_roles(usuario_sesion, ['Administrador', 'Recepcionista'])
-    if error_rol:
-        return error_rol
-
     if request.method == 'GET':
         busqueda = request.GET.get('q', '').strip()
         incluir_inactivos = request.GET.get('incluir_inactivos', '').strip().lower() == 'true'
+        accion_permiso = 'Buscar' if busqueda or incluir_inactivos else 'Mostrar'
+        error_permiso = exigir_permiso_modulo(usuario_sesion, 'CU10', accion_permiso)
+        if error_permiso:
+            return error_permiso
         productos = Productos.SolicitaBusqueda(busqueda, incluir_inactivos)
         serializer = ProductoSerializer(productos, many=True)
         return Response(serializer.data, status=200)
+
+    error_permiso = exigir_permiso_modulo(usuario_sesion, 'CU10', 'Adicionar')
+    if error_permiso:
+        return error_permiso
 
     serializer = Productos.ValidaDatos(request.data)
     if not serializer.is_valid():
@@ -1217,16 +1279,15 @@ def producto_detalle_api(request, producto_id):
     if error_auth:
         return error_auth
 
-    error_rol = exigir_roles(usuario_sesion, ['Administrador', 'Recepcionista'])
-    if error_rol:
-        return error_rol
-
     try:
         producto = Producto.objects.get(codigo=producto_id)
     except Producto.DoesNotExist:
         return Response({"exito": False, "error": "Producto no encontrado."}, status=404)
 
     if request.method == 'PUT':
+        error_permiso = exigir_permiso_modulo(usuario_sesion, 'CU10', 'Editar')
+        if error_permiso:
+            return error_permiso
         serializer = ProductoSerializer(producto, data=request.data, partial=True)
         if not serializer.is_valid():
             return Response({"exito": False, "errores": serializer.errors}, status=400)
@@ -1235,6 +1296,10 @@ def producto_detalle_api(request, producto_id):
         Productos.SolicitaRegistroBitacora(usuario_sesion, 'MODIFICACIÓN', f"Actualizó producto: {producto_actualizado.nombre}.")
         confirmacion = Productos.RetornaDatosYConfirmacion(True)
         return Response({"exito": True, "mensaje": "Producto actualizado.", **confirmacion}, status=200)
+
+    error_permiso = exigir_permiso_modulo(usuario_sesion, 'CU10', 'Eliminar')
+    if error_permiso:
+        return error_permiso
 
     if (producto.estado or 'Activo') == 'Inactivo':
         return Response({"exito": False, "error": "El producto ya está inactivo."}, status=400)
@@ -1609,11 +1674,11 @@ def inventario_api(request):
     if error_auth:
         return error_auth
 
-    error_rol = exigir_roles(usuario_sesion, ['Administrador', 'Recepcionista', 'Mecanico'])
-    if error_rol:
-        return error_rol
-
     alerta = request.GET.get('alerta', '').strip().lower()
+    accion_permiso = 'Buscar' if alerta else 'Mostrar'
+    error_permiso = exigir_permiso_modulo(usuario_sesion, 'CU11', accion_permiso)
+    if error_permiso:
+        return error_permiso
     productos = Inventario.SolicitarDatosStock(alerta)
 
     serializer = ProductoSerializer(productos, many=True)
@@ -1629,14 +1694,17 @@ def compras_api(request):
     if error_auth:
         return error_auth
 
-    error_rol = exigir_roles(usuario_sesion, ['Administrador', 'Recepcionista'])
-    if error_rol:
-        return error_rol
-
     if request.method == 'GET':
+        error_permiso = exigir_permiso_modulo(usuario_sesion, 'CU12', 'Mostrar')
+        if error_permiso:
+            return error_permiso
         compras = Compra.objects.select_related('id_proveedor').all().order_by('-fecha')
         serializer = CompraSerializer(compras, many=True)
         return Response(serializer.data, status=200)
+
+    error_permiso = exigir_permiso_modulo(usuario_sesion, 'CU12', 'Adicionar')
+    if error_permiso:
+        return error_permiso
 
     detalles = request.data.get('detalles', [])
     datos_compra = Compras.EnviarPayloadComprasYDetalle(request.data)
@@ -1678,12 +1746,12 @@ def cotizaciones_api(request):
     if error_auth:
         return error_auth
 
-    error_rol = exigir_roles(usuario_sesion, ['Administrador', 'Recepcionista'])
-    if error_rol:
-        return error_rol
-
     if request.method == 'GET':
         query = request.GET.get('q', '').strip()
+        accion_permiso = 'Buscar' if query else 'Mostrar'
+        error_permiso = exigir_permiso_modulo(usuario_sesion, 'CU07', accion_permiso)
+        if error_permiso:
+            return error_permiso
         cotizaciones = Cotizacion.objects.select_related('id_cliente', 'id_motocicleta').all()
         if query:
             filtros = (
@@ -1699,6 +1767,10 @@ def cotizaciones_api(request):
         cotizaciones = cotizaciones.order_by('-fecha_emision')
         serializer = CotizacionSerializer(cotizaciones, many=True)
         return Response(serializer.data, status=200)
+
+    error_permiso = exigir_permiso_modulo(usuario_sesion, 'CU07', 'Adicionar')
+    if error_permiso:
+        return error_permiso
 
     detalles = request.data.get('detalles', [])
     if not isinstance(detalles, list) or len(detalles) == 0:
@@ -1785,9 +1857,9 @@ def cotizacion_detalle_api(request, cotizacion_id):
     if error_auth:
         return error_auth
 
-    error_rol = exigir_roles(usuario_sesion, ['Administrador', 'Recepcionista'])
-    if error_rol:
-        return error_rol
+    error_permiso = exigir_permiso_modulo(usuario_sesion, 'CU07', 'Editar')
+    if error_permiso:
+        return error_permiso
 
     cotizacion = Cotizaciones.BuscaCotizacion(cotizacion_id)
     if cotizacion is None:
@@ -1822,12 +1894,12 @@ def ordenes_trabajo_api(request):
     if error_auth:
         return error_auth
 
-    error_rol = exigir_roles(usuario_sesion, ['Administrador', 'Recepcionista', 'Mecanico'])
-    if error_rol:
-        return error_rol
-
     if request.method == 'GET':
         query = request.GET.get('q', '').strip()
+        accion_permiso = 'Buscar' if query else 'Mostrar'
+        error_permiso = exigir_permiso_modulo(usuario_sesion, 'CU08', accion_permiso)
+        if error_permiso:
+            return error_permiso
         ordenes = Ordentrabajo.objects.select_related('id_cliente', 'id_motocicleta', 'id_mecanico').all()
         if query:
             filtros = (
@@ -1845,6 +1917,10 @@ def ordenes_trabajo_api(request):
         ordenes = ordenes.order_by('-fecha_creacion')
         serializer = OrdenTrabajoSerializer(ordenes, many=True)
         return Response(serializer.data, status=200)
+
+    error_permiso = exigir_permiso_modulo(usuario_sesion, 'CU08', 'Adicionar')
+    if error_permiso:
+        return error_permiso
 
     datos_orden = OrdenTrabajo.EnviaDatos(request.data)
     serializer = OrdenTrabajoSerializer(data=datos_orden)
@@ -1867,9 +1943,9 @@ def orden_trabajo_detalle_api(request, orden_id):
     if error_auth:
         return error_auth
 
-    error_rol = exigir_roles(usuario_sesion, ['Administrador', 'Recepcionista', 'Mecanico'])
-    if error_rol:
-        return error_rol
+    error_permiso = exigir_permiso_modulo(usuario_sesion, 'CU08', 'Editar')
+    if error_permiso:
+        return error_permiso
 
     try:
         orden = Ordentrabajo.objects.get(codigo=orden_id)
@@ -1896,14 +1972,17 @@ def notas_trabajo_api(request):
     if error_auth:
         return error_auth
 
-    error_rol = exigir_roles(usuario_sesion, ['Administrador', 'Mecanico'])
-    if error_rol:
-        return error_rol
-
     if request.method == 'GET':
+        error_permiso = exigir_permiso_modulo(usuario_sesion, 'CU09', 'Mostrar')
+        if error_permiso:
+            return error_permiso
         notas = Notatrabajo.objects.select_related('id_orden_trabajo', 'id_mecanico').all().order_by('-fecha_hora')
         serializer = NotaTrabajoSerializer(notas, many=True)
         return Response(serializer.data, status=200)
+
+    error_permiso = exigir_permiso_modulo(usuario_sesion, 'CU09', 'Adicionar')
+    if error_permiso:
+        return error_permiso
 
     detalles = request.data.get('detalles', [])
     if detalles is None:
@@ -2179,9 +2258,9 @@ def aceptar_cotizacion_api(request, cotizacion_id):
     if error_auth:
         return error_auth
 
-    error_rol = exigir_roles(usuario_sesion, ['Administrador', 'Recepcionista'])
-    if error_rol:
-        return error_rol
+    error_permiso = exigir_permiso_modulo(usuario_sesion, 'CU07', 'Editar')
+    if error_permiso:
+        return error_permiso
 
     try:
         cotizacion = Cotizacion.objects.select_related('id_cliente').get(codigo=cotizacion_id)
@@ -2248,18 +2327,20 @@ def permisos_api(request):
     if error_auth:
         return error_auth
 
-    error_admin = exigir_admin(usuario_sesion)
-    if error_admin:
-        return error_admin
-
     if request.method == 'GET':
         try:
             ensure_permiso_modulo_table()
         except OperationalError as exc:
             return Response({'exito': False, 'error': str(exc)}, status=500)
         permisos = PermisoModulo.objects.all()
+        if usuario_sesion.id_rol.nombre != 'Administrador':
+            permisos = permisos.filter(id_rol=usuario_sesion.id_rol)
         serializer = PermisoModuloSerializer(permisos, many=True)
         return Response(serializer.data)
+
+    error_admin = exigir_admin(usuario_sesion)
+    if error_admin:
+        return error_admin
 
     elif request.method == 'POST':
         data = request.data
@@ -2274,9 +2355,8 @@ def permisos_api(request):
             
             # Iterar sobre cada rol
             for rol_nombre, modulos in data.items():
-                try:
-                    rol = Rol.objects.get(nombre=rol_nombre)
-                except Rol.DoesNotExist:
+                rol = resolver_rol_por_nombre(rol_nombre)
+                if not rol:
                     continue
                 
                 # Iterar sobre cada m�dulo/CU

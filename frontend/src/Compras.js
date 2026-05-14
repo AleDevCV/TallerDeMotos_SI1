@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import './Login.css';
 import { getHomeRouteByRole } from './navigation';
 import { API_BASE_URL } from './config';
+import { validarPermisoModulo } from './permissions';
 
 const API = `${API_BASE_URL}/api`;
 
@@ -42,15 +43,29 @@ const Compras = () => {
   const headers = () => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('token')}` });
 
   useEffect(() => {
-    if (!usuarioLocal || !['Administrador', 'Recepcionista'].includes(usuarioLocal.rol)) {
-      alert('Acceso denegado para gestión de compras.');
-      navigate(getHomeRouteByRole(usuarioLocal?.rol));
+    if (!usuarioLocal) {
+      navigate('/login');
       return;
     }
 
-    cargarProveedores();
-    cargarProductos();
-    cargarCompras();
+    const validarAcceso = async () => {
+      const permitido = await validarPermisoModulo(
+        'CU12',
+        ['Mostrar', 'Buscar', 'Adicionar', 'Eliminar', 'Editar'],
+        usuarioLocal?.rol
+      );
+      if (!permitido) {
+        alert('Acceso denegado para gestión de compras.');
+        navigate(getHomeRouteByRole(usuarioLocal?.rol));
+        return;
+      }
+
+      cargarProveedores();
+      cargarProductos();
+      cargarCompras();
+    };
+
+    validarAcceso();
   }, [navigate, usuarioLocal]);
 
   const cargarProveedores = async () => {

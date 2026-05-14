@@ -2,12 +2,18 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Login.css';
 import { logoutUniversal } from './auth';
-import { repairText } from './textNormalization';
+import { normalizeRoleText, repairText } from './textNormalization';
 import AdminMenu from './AdminMenu';
 import { API_BASE_URL } from './config';
 
 const ROLES = ['Cliente', 'Mecanico', 'Recepcionista', 'Administrador'];
 const ADMIN_ROLE = 'Administrador';
+const ROLE_MAP = {
+  cliente: 'Cliente',
+  mecanico: 'Mecanico',
+  recepcionista: 'Recepcionista',
+  administrador: 'Administrador',
+};
 
 const PERMISOS_DATA = [
   {
@@ -143,6 +149,16 @@ const PERMISOS_DATA = [
   },
 ];
 
+const moduloLookup = (() => {
+  const lookup = new Map();
+  PERMISOS_DATA.forEach((seccion) => {
+    seccion.modulos.forEach((modulo) => {
+      lookup.set(modulo.cu, modulo);
+    });
+  });
+  return lookup;
+})();
+
 const AsignarPrivilegios = () => {
   const navigate = useNavigate();
   const usuarioLocal = useMemo(() => JSON.parse(localStorage.getItem('usuario')), []);
@@ -200,8 +216,11 @@ const AsignarPrivilegios = () => {
     });
 
     rawPermisos.forEach((permiso) => {
-      const rolNombre = permiso.rol_nombre;
-      const key = `${permiso.codigo_cu}_${permiso.nombre_modulo}`;
+      const rolNormalizado = normalizeRoleText(permiso.rol_nombre);
+      const rolNombre = ROLE_MAP[rolNormalizado] || repairText(permiso.rol_nombre);
+      const modulo = moduloLookup.get(permiso.codigo_cu);
+      const nombreModulo = modulo ? modulo.nombre : repairText(permiso.nombre_modulo);
+      const key = `${permiso.codigo_cu}_${nombreModulo}`;
 
       if (!permsObj[rolNombre] || !permsObj[rolNombre][key]) {
         return;

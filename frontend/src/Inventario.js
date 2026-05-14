@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import './Login.css';
 import { getHomeRouteByRole } from './navigation';
 import { API_BASE_URL } from './config';
+import { validarPermisoModulo } from './permissions';
 
 const API = `${API_BASE_URL}/api`;
 
@@ -69,12 +70,27 @@ const Inventario = () => {
   const headers = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
 
   useEffect(() => {
-    if (!usuarioLocal || !['Administrador', 'Recepcionista', 'Mecanico'].includes(usuarioLocal.rol)) {
-      alert('Acceso denegado para monitoreo de inventario.');
-      navigate(getHomeRouteByRole(usuarioLocal?.rol));
+    if (!usuarioLocal) {
+      navigate('/login');
       return;
     }
-    cargarInventario(mostrarBajoStock);
+
+    const validarAcceso = async () => {
+      const permitido = await validarPermisoModulo(
+        'CU11',
+        ['Mostrar', 'Buscar', 'Reportes'],
+        usuarioLocal?.rol
+      );
+      if (!permitido) {
+        alert('Acceso denegado para monitoreo de inventario.');
+        navigate(getHomeRouteByRole(usuarioLocal?.rol));
+        return;
+      }
+
+      cargarInventario(mostrarBajoStock);
+    };
+
+    validarAcceso();
   }, [navigate, usuarioLocal, mostrarBajoStock]);
 
   const cargarInventario = async (soloBajo) => {

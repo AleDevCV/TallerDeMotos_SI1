@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import './Login.css';
 import { getHomeRouteByRole } from './navigation';
 import { API_BASE_URL } from './config';
+import { validarPermisoModulo } from './permissions';
 
 const API = `${API_BASE_URL}/api`;
 
@@ -62,12 +63,27 @@ const Productos = () => {
   };
 
   useEffect(() => {
-    if (!usuarioLocal || !['Administrador', 'Recepcionista'].includes(usuarioLocal.rol)) {
-      alert('Acceso denegado para gestión de productos.');
-      navigate(getHomeRouteByRole(usuarioLocal?.rol));
+    if (!usuarioLocal) {
+      navigate('/login');
       return;
     }
-    cargarProductos();
+
+    const validarAcceso = async () => {
+      const permitido = await validarPermisoModulo(
+        'CU10',
+        ['Mostrar', 'Buscar', 'Adicionar', 'Eliminar', 'Editar'],
+        usuarioLocal?.rol
+      );
+      if (!permitido) {
+        alert('Acceso denegado para gestión de productos.');
+        navigate(getHomeRouteByRole(usuarioLocal?.rol));
+        return;
+      }
+
+      cargarProductos();
+    };
+
+    validarAcceso();
   }, [navigate, usuarioLocal]);
 
   const cargarProductos = async (query = '') => {

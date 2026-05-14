@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import './Login.css';
 import { logoutUniversal } from './auth';
 import { API_BASE_URL } from './config';
+import AdminMenu from './AdminMenu';
+import { fetchPermisosUsuario, tienePermisoCu } from './permissions';
 
 const API = `${API_BASE_URL}/api`;
 
@@ -13,6 +15,7 @@ const MisMotocicletas = () => {
   const [motos, setMotos] = useState([]);
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(true);
+  const [puedeVerBitacora, setPuedeVerBitacora] = useState(false);
 
   const headers = (json = true) => {
     const token = localStorage.getItem('token');
@@ -28,7 +31,13 @@ const MisMotocicletas = () => {
     }
 
     cargarMisMotocicletas();
+    cargarPermisoBitacora();
   }, [navigate, usuarioLocal]);
+
+  const cargarPermisoBitacora = async () => {
+    const permisos = await fetchPermisosUsuario();
+    setPuedeVerBitacora(tienePermisoCu(permisos, 'CU20', usuarioLocal?.rol));
+  };
 
   const cargarMisMotocicletas = async () => {
     try {
@@ -69,10 +78,15 @@ const MisMotocicletas = () => {
           <p style={{ margin: '6px 0 0', color: '#bbb' }}>{usuarioLocal?.nombre}</p>
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
+          {puedeVerBitacora && (
+            <button onClick={() => navigate('/bitacora')} style={{ padding: '8px 16px', backgroundColor: '#2c5f8f', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>Bitácora</button>
+          )}
           <button onClick={() => navigate('/perfil')} style={{ padding: '8px 16px', backgroundColor: '#333', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>Mi Perfil</button>
           <button onClick={cerrarSesion} style={{ padding: '8px 16px', backgroundColor: '#ff4d4d', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>Cerrar Sesión</button>
         </div>
       </div>
+
+      <AdminMenu />
 
       <div style={{ backgroundColor: '#1e1e1e', padding: '20px', borderRadius: '10px', boxShadow: '0 4px 15px rgba(0,0,0,0.4)' }}>
         <h3 style={{ marginTop: 0, color: '#ccc' }}>Motocicletas asociadas</h3>
