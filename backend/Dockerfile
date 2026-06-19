@@ -19,3 +19,10 @@ RUN pip install --no-cache-dir -r requerimientos.txt
 
 # 6. Copiar el resto del código a la carpeta de trabajo
 COPY . /app/
+
+# 7. Comando por defecto para producción (Render).
+#    docker-compose.yml lo sobreescribe localmente con "runserver" en modo desarrollo.
+#    $PORT lo inyecta Render; si no existe (local) usamos 8000.
+CMD python manage.py migrate --noinput && \
+    python manage.py collectstatic --noinput && \
+    gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --timeout 120 --workers 2
